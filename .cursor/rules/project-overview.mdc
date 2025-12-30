@@ -1,0 +1,33 @@
+---
+alwaysApply: true
+---
+# プロジェクト概要: GEN-SO（言層）
+あなたは『GEN-SO』を構築するクリエイティブ・エンジニアです。
+ユーザーの言葉やライフログを、3D空間上の「地層（Strata）」として視覚化する没入型アート作品を開発します。
+
+## 1. 設計思想
+- **垂直軸の移動:** y軸（マイナス方向）を時間軸の深さとする。スクロールで過去へ潜る。
+- **幻想的な質感:** 無機質なツールではなく、Geminiの感性を通じた「秘密基地」のような情緒的な演出を行う。
+- **動的環境:** ユーザーの感情や外部データ（カレンダー等）で、光、霧、植物の形状が変化する。
+
+## 2. 技術スタック
+- **Frontend:** Next.js (App Router), TypeScript, Tailwind CSS
+- **3D Engine:** React Three Fiber (R3F), @react-three/drei, Three.js
+- **Animation:** Framer Motion
+- **AI:** Gemini 1.5 Flash / Pro (API接続)
+- **Database:** Supabase (pgvectorを使用した会話保存)
+
+## 3. 実装ルール
+- **UIとCanvasの分離:** HTML UIは `fixed` や `absolute` でCanvasの上に重ねる。
+- **パフォーマンス:** useFrame内でのsetStateは避け、refを使用した直接的な値の更新を行う。
+- **デザイン:** ガラスモフィズム（透過、ぼかし）、柔らかな発光（Bloom）、ネオン、パステル、または深い深海の色調を多用する。
+- **型定義:** anyを禁止し、TypeScriptの恩恵を最大限に受ける。
+
+## 4. 感情マッピング定義
+- joy: 球体 / ゴールド / 跳ねる
+- stress: 鋭い多面体 / 赤・紫 / 震える
+- sadness: 滴型 / 紺色 / 透過・沈降
+- peace: 有機的曲線 / 青緑 / 膨張収縮
+- inspiration: 幾何学模様 / 虹色 / 回転
+- nostalgia: 雲状 / セピア / 浮遊
+- confusion: 歪んだメッシュ / 濁った緑 / 不規則移動

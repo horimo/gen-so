@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #000000;
+  --foreground: #ffffff;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  background-color: #000000;
+  color: var(--foreground);
+  overflow: hidden;
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", "Monaco", "Courier New", monospace;
+  /* スマホでのタッチ操作を最適化 */
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* スクロールバーを非表示 */
+::-webkit-scrollbar {
+  display: none;
+}
+
+* {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* モノスペースフォントのフォールバック */
+@font-face {
+  font-family: "JetBrains Mono";
+  src: local("JetBrains Mono"), local("Fira Code"), local("Consolas"), local("Monaco"), local("Courier New");
+}
+
