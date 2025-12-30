@@ -2,9 +2,22 @@
 
 import { Canvas } from "@react-three/fiber";
 import { Scene } from "./Scene";
+import dynamic from "next/dynamic";
+
+// Scene2DPixiを動的インポートで遅延読み込み（コンパイル時間の短縮）
+const Scene2DPixi = dynamic(() => import("./Scene2DPixi").then((mod) => ({ default: mod.Scene2DPixi })), {
+  ssr: false, // サーバーサイドレンダリングを無効化
+  loading: () => (
+    <div className="fixed inset-0 flex items-center justify-center bg-[#1a1a2e]">
+      <div className="text-white/60 text-sm font-mono">読み込み中...</div>
+    </div>
+  ),
+});
 import { useDepth } from "@/hooks/useDepth";
 import { DepthIndicator } from "@/components/ui/DepthIndicator";
 import { FloatingChat } from "@/components/ui/FloatingChat";
+import { EmotionDetailModal } from "@/components/ui/EmotionDetailModal";
+import { EmotionDepthMap } from "@/components/ui/EmotionDepthMap";
 import { useSmoothDepth } from "@/hooks/useSmoothDepth";
 import { useMessageStore } from "@/store/useMessageStore";
 import { useEmotionStore } from "@/store/useEmotionStore";
@@ -19,19 +32,20 @@ import { useEffect, useState, useRef } from "react";
  */
 export function DepthCanvas() {
   const { user, signOut } = useAuth();
-  const rawDepth = useDepth();
+  const { depth: rawDepth, jumpToDepth } = useDepth();
   const smoothDepth = useSmoothDepth(rawDepth);
   const updateMessageStatus = useMessageStore((state) => state.updateMessageStatus);
   const addEmotion = useEmotionStore((state) => state.addEmotion);
   const addEmotions = useEmotionStore((state) => state.addEmotions);
   const clearEmotions = useEmotionStore((state) => state.clearEmotions);
-  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [isLoadingData, setIsLoadingData] = useState(false);
   const [hasLoadedData, setHasLoadedData] = useState(false);
   const [othersLights, setOthersLights] = useState<Array<{
     depth_y: number;
     category: "joy" | "peace" | "stress" | "sadness" | "inspiration" | "nostalgia" | "confusion";
     strength: number;
   }>>([]);
+  const [showDepthMap, setShowDepthMap] = useState(false);
 
   // ログイン時にデータベースから過去の言層データを読み込む
   useEffect(() => {
@@ -49,32 +63,36 @@ export function DepthCanvas() {
         return;
       }
 
-      try {
-        // 既存のデータをクリアしてから読み込む
-        clearEmotions();
-        
-        const strataData = await getStrataObjects();
-        
-        // データベースから読み込んだデータを3D空間に復元
-        if (strataData.length > 0) {
-          const emotions = strataData.map((strata) => ({
-            category: strata.category,
-            strength: strata.strength,
-            analysis: strata.analysis || "",
-            depth: strata.depth_y,
-          }));
+      // データ読み込みを非ブロッキングで開始（画面表示をブロックしない）
+      // 少し遅延させて、初期表示を優先
+      setTimeout(async () => {
+        try {
+          // 既存のデータをクリアしてから読み込む
+          clearEmotions();
           
-          addEmotions(emotions);
-          console.log(`${strataData.length}件の言層データを読み込みました`);
+          const strataData = await getStrataObjects();
+          
+          // データベースから読み込んだデータを3D空間に復元
+          if (strataData.length > 0) {
+            const emotions = strataData.map((strata) => ({
+              category: strata.category,
+              strength: strata.strength,
+              analysis: strata.analysis || "",
+              depth: strata.depth_y,
+            }));
+            
+            addEmotions(emotions);
+            console.log(`${strataData.length}件の言層データを読み込みました`);
+          }
+          
+          setHasLoadedData(true);
+        } catch (error) {
+          console.error("言層データの読み込みエラー:", error);
+          // エラーが発生しても3D表示は続行
+        } finally {
+          setIsLoadingData(false);
         }
-        
-        setHasLoadedData(true);
-      } catch (error) {
-        console.error("言層データの読み込みエラー:", error);
-        // エラーが発生しても3D表示は続行
-      } finally {
-        setIsLoadingData(false);
-      }
+      }, 100); // 100ms遅延して、初期表示を優先
     };
 
     loadStrataData();
@@ -178,8 +196,28 @@ export function DepthCanvas() {
     }
   };
 
+  // 2Dモードの切り替え（環境変数またはフラグで制御）
+  const use2DMode = process.env.NEXT_PUBLIC_USE_2D_MODE === "true" || true; // デフォルトで2Dモード
+
   return (
     <div className="fixed inset-0 w-full h-full">
+      {/* データ読み込み中のスケルトンUI */}
+      {isLoadingData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#1a1a2e]">
+          <div className="text-center">
+            <div className="text-white/60 text-sm font-mono mb-2">言層データを読み込み中...</div>
+            <div className="w-32 h-1 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full bg-white/30 animate-pulse" style={{ width: "60%" }} />
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {use2DMode ? (
+        // 2Dモード
+        <Scene2DPixi depth={rawDepth} userId={user?.id} othersLights={othersLights} />
+      ) : (
+        // 3Dモード（従来の実装）
       <Canvas
         camera={{
           position: [0, 0, 10],
@@ -192,11 +230,12 @@ export function DepthCanvas() {
           alpha: false,
         }}
       >
-        <Scene depth={rawDepth} othersLights={othersLights} />
+          <Scene depth={rawDepth} userId={user?.id} othersLights={othersLights} />
       </Canvas>
+      )}
       
       {/* 深度インジケーター */}
-      <DepthIndicator smoothDepth={smoothDepth} />
+      <DepthIndicator smoothDepth={smoothDepth} onTap={() => setShowDepthMap(true)} />
       
       {/* 浮遊チャットUI */}
       <FloatingChat 
@@ -231,6 +270,21 @@ export function DepthCanvas() {
         >
           ログアウト
         </button>
+      )}
+      
+      {/* 感情オブジェクトの詳細モーダル */}
+      <EmotionDetailModal />
+      
+      {/* 感情深度マップ */}
+      {showDepthMap && (
+        <EmotionDepthMap
+          currentDepth={rawDepth}
+          onDepthSelect={(depth) => {
+            jumpToDepth(depth);
+            setShowDepthMap(false);
+          }}
+          onClose={() => setShowDepthMap(false)}
+        />
       )}
     </div>
   );

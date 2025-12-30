@@ -8,10 +8,11 @@ import { useMotionValue, useSpring } from "framer-motion";
  */
 export function useSmoothDepth(rawDepth: number) {
   const motionValue = useMotionValue(rawDepth);
+  // スクロールに即座に反応するように、非常に硬いスプリング設定
   const spring = useSpring(motionValue, {
-    stiffness: 50,
-    damping: 30,
-    mass: 0.5,
+    stiffness: 500, // 非常に硬く（即座に反応）
+    damping: 50, // ダンピングを増やして振動を抑える
+    mass: 0.1, // 非常に軽く（即座に反応）
   });
 
   // rawDepthが変更されたらmotionValueを更新

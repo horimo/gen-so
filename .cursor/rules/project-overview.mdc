@@ -31,3 +31,9 @@ alwaysApply: true
 - inspiration: 幾何学模様 / 虹色 / 回転
 - nostalgia: 雲状 / セピア / 浮遊
 - confusion: 歪んだメッシュ / 濁った緑 / 不規則移動
+
+## 5. ドキュメント整理ルール
+- **README.md:** プロジェクトルートに配置する（GitHub等の標準的な構成に従う）
+- **その他のドキュメント:** `docs/` ディレクトリに配置する
+  - 例: `FEATURE_DESIGN.md`, `DEPLOY.md`, `DEPLOY_CHECKLIST.md`, `README_DATABASE.md` など
+- 新しいドキュメントファイルを作成する際は、このルールに従って適切な場所に配置すること

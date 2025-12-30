@@ -29,13 +29,49 @@ export const useEmotionStore = create<EmotionStore>((set) => ({
   objects: [],
   
   addEmotion: (emotion) => {
+    // よりランダムなシード生成
+    const timestamp = Date.now();
+    const randomId = Math.random().toString(36).substr(2, 9);
+    
+    // ID全体をハッシュ化（より複雑な計算）
+    const idHash = randomId.split('').reduce((acc, char, i) => {
+      return acc + char.charCodeAt(0) * (i + 1) * 1000;
+    }, 0);
+    
+    // カテゴリもハッシュに含める（異なるカテゴリで異なる配置）
+    const categoryHash = emotion.category.split('').reduce((acc, char) => {
+      return acc + char.charCodeAt(0) * 10000;
+    }, 0);
+    
+    const seed = Math.floor(emotion.depth * 1000) 
+      + timestamp 
+      + idHash 
+      + categoryHash
+      + Math.floor(emotion.strength * 100000);
+    
+    // シードベースの疑似乱数生成関数（複数の計算を組み合わせてランダム性を向上）
+    const seededRandom = (offset: number) => {
+      // 複数の計算を組み合わせてよりランダムに
+      const value1 = ((seed + offset * 1000) * 9301 + 49297) % 233280;
+      const value2 = ((seed + offset * 2000) * 7919 + 12345) % 233280;
+      const value3 = ((seed + offset * 3000) * 6781 + 98765) % 233280;
+      return ((value1 + value2 + value3) % 233280) / 233280;
+    };
+    
+    // 角度と半径を使った極座標系での配置（より自然な分布）
+    // 半径もランダムに変動させてより分散させる
+    const angle = seededRandom(0) * Math.PI * 2;
+    const radius = seededRandom(1) * 10 + seededRandom(2) * 5; // 0から15の範囲、より分散
+    const x = Math.cos(angle) * radius;
+    const z = Math.sin(angle) * radius;
+    
     const object: EmotionObject = {
       ...emotion,
-      id: `emotion-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: Date.now(),
-      // ランダムな位置に配置（-5から5の範囲）
-      x: (Math.random() - 0.5) * 10,
-      z: (Math.random() - 0.5) * 10,
+      id: `emotion-${timestamp}-${randomId}`,
+      timestamp,
+      // 極座標系でのランダムな位置に配置（より自然な分布）
+      x,
+      z,
     };
     
     set((state) => ({
@@ -45,15 +81,54 @@ export const useEmotionStore = create<EmotionStore>((set) => ({
   
   addEmotions: (emotions) => {
     const baseTime = Date.now();
-    const objects: EmotionObject[] = emotions.map((emotion, index) => ({
-      ...emotion,
-      // 各オブジェクトに一意のIDを生成（インデックスとランダム値を組み合わせ）
-      id: `emotion-${baseTime}-${index}-${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: baseTime + index, // インデックスを加算して一意性を保証
-      // ランダムな位置に配置（-5から5の範囲）
-      x: (Math.random() - 0.5) * 10,
-      z: (Math.random() - 0.5) * 10,
-    }));
+    const objects: EmotionObject[] = emotions.map((emotion, index) => {
+      // 完全にランダムなIDを生成（各オブジェクトごとに異なる）
+      const randomId = Math.random().toString(36).substr(2, 9);
+      
+      // ID全体をハッシュ化（より複雑な計算）
+      const idHash = randomId.split('').reduce((acc, char, i) => {
+        return acc + char.charCodeAt(0) * (i + 1) * 1000;
+      }, 0);
+      
+      // カテゴリもハッシュに含める（異なるカテゴリで異なる配置）
+      const categoryHash = emotion.category.split('').reduce((acc, char) => {
+        return acc + char.charCodeAt(0) * 10000;
+      }, 0);
+      
+      // より複雑なシード生成（複数の要素を組み合わせ）
+      const seed = Math.floor(emotion.depth * 1000) 
+        + index * 10000 
+        + baseTime 
+        + idHash 
+        + categoryHash
+        + Math.floor(emotion.strength * 100000);
+      
+      // シードベースの疑似乱数生成関数（複数の計算を組み合わせてランダム性を向上）
+      const seededRandom = (offset: number) => {
+        // 複数の計算を組み合わせてよりランダムに
+        const value1 = ((seed + offset * 1000) * 9301 + 49297) % 233280;
+        const value2 = ((seed + offset * 2000) * 7919 + 12345) % 233280;
+        const value3 = ((seed + offset * 3000) * 6781 + 98765) % 233280;
+        return ((value1 + value2 + value3) % 233280) / 233280;
+      };
+      
+      // 角度と半径を使った極座標系での配置（より自然な分布）
+      // 半径もランダムに変動させてより分散させる
+      const angle = seededRandom(0) * Math.PI * 2;
+      const radius = seededRandom(1) * 10 + seededRandom(2) * 5; // 0から15の範囲、より分散
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      
+      return {
+        ...emotion,
+        // 各オブジェクトに一意のIDを生成（インデックスとランダム値を組み合わせ）
+        id: `emotion-${baseTime}-${index}-${randomId}`,
+        timestamp: baseTime + index, // インデックスを加算して一意性を保証
+        // 極座標系でのランダムな位置に配置（より自然な分布）
+        x,
+        z,
+      };
+    });
     
     set((state) => ({
       objects: [...state.objects, ...objects],

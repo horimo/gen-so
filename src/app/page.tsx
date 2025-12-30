@@ -1,7 +1,8 @@
 "use client";
 
-import { DepthCanvas } from "@/components/canvas/DepthCanvas";
 import { LoginGate } from "@/components/ui/LoginGate";
+import { TerrariumLoader } from "@/components/ui/TerrariumLoader";
+import { DepthCanvas } from "@/components/canvas/DepthCanvas";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
@@ -21,11 +22,7 @@ function HomeContent() {
   }, [searchParams]);
 
   if (loading) {
-    return (
-      <main className="relative w-full h-screen overflow-hidden flex items-center justify-center">
-        <div className="text-white/60 text-sm font-mono">読み込み中...</div>
-      </main>
-    );
+    return <TerrariumLoader />;
   }
 
   return (
@@ -41,11 +38,7 @@ function HomeContent() {
 
 export default function Home() {
   return (
-    <Suspense fallback={
-      <main className="relative w-full h-screen overflow-hidden flex items-center justify-center">
-        <div className="text-white/60 text-sm font-mono">読み込み中...</div>
-      </main>
-    }>
+    <Suspense fallback={<TerrariumLoader />}>
       <HomeContent />
     </Suspense>
   );

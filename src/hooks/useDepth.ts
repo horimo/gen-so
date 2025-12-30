@@ -10,6 +10,9 @@ import { useState, useEffect, useRef } from "react";
 export function useDepth() {
   const [depth, setDepth] = useState(0);
   const isInputFocusedRef = useRef(false);
+  const depthRef = useRef(0); // 外部からアクセス可能な参照
+  const jumpToDepthRef = useRef<((targetDepth: number) => void) | null>(null);
+  const isJumpingRef = useRef(false); // ジャンプ中フラグ
 
   // 入力フィールドのフォーカス状態を外部から制御できるようにする
   useEffect(() => {
@@ -78,6 +81,7 @@ export function useDepth() {
       // 深度は0以上（マイナス方向に移動）
       accumulatedDepth = Math.max(0, accumulatedDepth);
       
+      depthRef.current = accumulatedDepth;
       setDepth(accumulatedDepth);
       
       // スクロール中フラグを設定
@@ -118,6 +122,11 @@ export function useDepth() {
         return;
       }
 
+      // ジャンプ中はタッチイベントを無視
+      if (isJumpingRef.current) {
+        return;
+      }
+
       e.preventDefault();
       
       const touchCurrentY = e.touches[0].clientY;
@@ -130,12 +139,54 @@ export function useDepth() {
       // 深度は0以上（マイナス方向に移動）
       accumulatedDepth = Math.max(0, accumulatedDepth);
       
+      depthRef.current = accumulatedDepth;
       setDepth(accumulatedDepth);
     };
 
     const handleTouchEnd = () => {
       isTouching = false;
     };
+
+    // 深度ジャンプ関数
+    const jumpToDepth = (targetDepth: number) => {
+      const startDepth = depthRef.current;
+      const duration = 1000; // 1秒で移動
+      const startTime = Date.now();
+      
+      // ジャンプ中フラグを設定
+      isJumpingRef.current = true;
+      
+      // accumulatedDepthも更新（ジャンプ後のスクロールの基準点を更新）
+      accumulatedDepth = targetDepth;
+      
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // イージング関数（easeInOutCubic）
+        const eased = progress < 0.5
+          ? 4 * progress * progress * progress
+          : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+        
+        const currentDepth = startDepth + (targetDepth - startDepth) * eased;
+        depthRef.current = currentDepth;
+        accumulatedDepth = currentDepth; // accumulatedDepthも更新
+        setDepth(currentDepth);
+        
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          // ジャンプ完了後、少し遅延してからフラグを解除（スクロールイベントの誤検知を防ぐ）
+          setTimeout(() => {
+            isJumpingRef.current = false;
+          }, 100);
+        }
+      };
+      
+      animate();
+    };
+    
+    jumpToDepthRef.current = jumpToDepth;
 
     window.addEventListener("wheel", handleWheel, { passive: false });
     window.addEventListener("touchstart", handleTouchStart, { passive: true });
@@ -151,6 +202,12 @@ export function useDepth() {
     };
   }, []);
 
-  return depth;
+  return {
+    depth,
+    jumpToDepth: jumpToDepthRef.current || ((targetDepth: number) => {
+      depthRef.current = targetDepth;
+      setDepth(targetDepth);
+    }),
+  };
 }
 

@@ -1,0 +1,39 @@
+[
+  {
+    "key": "enter",
+    "command": "-cursor.chat.sendMessage",
+    "when": "chatInputFocus"
+  },
+  {
+    "key": "enter",
+    "command": "-cursor.composer.send",
+    "when": "composerInputFocus"
+  },
+  {
+    "key": "enter",
+    "command": "-workbench.action.chat.send",
+    "when": "inputFocus && activeViewlet == 'workbench.view.chat'"
+  },
+  {
+    "key": "enter",
+    "command": "-workbench.action.chat.submit",
+    "when": "inputFocus && activeViewlet == 'workbench.view.chat'"
+  },
+  {
+    "key": "ctrl+enter",
+    "command": "cursor.chat.sendMessage",
+    "when": "chatInputFocus"
+  },
+  {
+    "key": "ctrl+enter",
+    "command": "cursor.composer.send",
+    "when": "composerInputFocus"
+  },
+  {
+    "key": "ctrl+enter",
+    "command": "workbench.action.chat.send",
+    "when": "inputFocus && activeViewlet == 'workbench.view.chat'"
+  }
+]
+
+
