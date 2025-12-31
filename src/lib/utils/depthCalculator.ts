@@ -29,35 +29,44 @@ export function calculateDepthFromCreatedAt(
 
 /**
  * 複数の作成日時から深度を計算し、基準時刻を自動調整
- * 最も古いメッセージを深度0として、新しいものは負の値（地上エリア）になるように調整
+ * 最も新しいメッセージを深度20として、古いものは正の値（地下エリア）になるように調整
+ * 古いメッセージ → 深い深度（正の値、大きい値）
+ * 新しいメッセージ → 浅い深度（20以上、小さい値）
+ * 
+ * 深度0が「地面の位置」で、これが基準点です。
+ * 最も新しいメッセージは深度20に配置され、古いメッセージは深度20より深い（正の値、地下エリア）に配置されます。
+ * 
  * @param createdAts 作成日時の配列
- * @returns 深度の配列（最も古いものが0、新しいものは負の値）
+ * @returns 深度の配列（最も新しいものが20、古いものは20より大きい正の値）
  */
 export function calculateDepthsFromCreatedAts(
   createdAts: (string | Date)[]
 ): number[] {
   if (createdAts.length === 0) return [];
   
-  // 最も古い日時を取得
-  const oldestDate = createdAts.reduce((oldest, current) => {
+  // 最も新しい日時を取得（深度20の基準点）
+  const newestDate = createdAts.reduce((newest, current) => {
     const currentDate = typeof current === "string" ? new Date(current) : current;
-    const oldestDate = typeof oldest === "string" ? new Date(oldest) : oldest;
-    return currentDate < oldestDate ? current : oldest;
+    const newestDate = typeof newest === "string" ? new Date(newest) : newest;
+    return currentDate > newestDate ? current : newest;
   });
   
-  const oldestDateObj = typeof oldestDate === "string" ? new Date(oldestDate) : oldestDate;
+  const newestDateObj = typeof newestDate === "string" ? new Date(newestDate) : newestDate;
   
-  // 各作成日時から深度を計算（最も古いものを基準に）
+  // 各作成日時から深度を計算（最も新しいものを基準に）
   return createdAts.map((createdAt) => {
     const createdDate = typeof createdAt === "string" ? new Date(createdAt) : createdAt;
-    // 古いものから新しいものを引く（古いものは正の値、新しいものは負の値）
-    const timeDiff = oldestDateObj.getTime() - createdDate.getTime(); // ミリ秒
+    // 新しいものから古いものを引く
+    // 最も新しいもの（createdDate = newestDateObj）は timeDiff = 0 → 深度20
+    // 古いもの（createdDate < newestDateObj）は timeDiff > 0 → 深度20より大きい正の値（地下エリア）
+    const timeDiff = newestDateObj.getTime() - createdDate.getTime(); // ミリ秒
     
     // 経過時間を深度に変換
     // 1日 = 86400000ミリ秒
-    // 1日につき10の深度を増やす（古いものほど深く）
-    // 最も古いもの（基準）は深度0、新しいものは負の値（地上エリア）
-    const depth = Math.floor(timeDiff / (86400000 / 10)); // 1日 = 10深度
+    // 1日につき10の深度を増やす
+    // 最も新しいもの（timeDiff=0）は深度20、古いもの（timeDiff>0）は深度20より大きい正の値（地下エリア）
+    const baseDepth = Math.floor(timeDiff / (86400000 / 10)); // 1日 = 10深度
+    const depth = baseDepth + 20; // 最も新しいメッセージを深度20に配置
     
     return depth;
   });

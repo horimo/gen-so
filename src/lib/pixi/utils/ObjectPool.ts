@@ -1,11 +1,11 @@
 "use client";
 
-import { Container, DisplayObject } from "pixi.js";
+import { Container } from "pixi.js";
 
 /**
  * オブジェクトプーリングの設定
  */
-export interface PoolConfig<T extends DisplayObject> {
+export interface PoolConfig<T extends Container> {
   create: () => T;
   reset?: (obj: T) => void; // オブジェクトを再利用可能な状態にリセット
   maxSize?: number; // プールの最大サイズ（未指定の場合は無制限）
@@ -14,7 +14,7 @@ export interface PoolConfig<T extends DisplayObject> {
 /**
  * 汎用的なオブジェクトプーリングクラス
  */
-export class ObjectPool<T extends DisplayObject> {
+export class ObjectPool<T extends Container> {
   private pool: T[] = [];
   private active: Set<T> = new Set();
   private createFn: () => T;
@@ -128,7 +128,7 @@ export class ObjectPoolManager {
   /**
    * プールを登録
    */
-  registerPool<T extends DisplayObject>(
+  registerPool<T extends Container>(
     name: string,
     config: PoolConfig<T>
   ): ObjectPool<T> {
@@ -140,7 +140,7 @@ export class ObjectPoolManager {
   /**
    * プールを取得
    */
-  getPool<T extends DisplayObject>(name: string): ObjectPool<T> | undefined {
+  getPool<T extends Container>(name: string): ObjectPool<T> | undefined {
     return this.pools.get(name);
   }
 

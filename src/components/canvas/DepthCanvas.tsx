@@ -88,6 +88,14 @@ export function DepthCanvas() {
               timestamp: strata.created_at ? new Date(strata.created_at).getTime() : undefined,
             }));
             
+            // デバッグ: 深度計算結果をログ出力
+            console.log("[深度計算] 結果:", {
+              total: emotions.length,
+              depths: emotions.map(e => ({ category: e.category, depth: e.depth, timestamp: e.timestamp })),
+              minDepth: Math.min(...depths),
+              maxDepth: Math.max(...depths),
+            });
+            
             addEmotions(emotions);
             console.log(`${strataData.length}件の言層データを読み込みました`);
           }

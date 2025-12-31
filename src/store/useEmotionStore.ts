@@ -130,6 +130,7 @@ export const useEmotionStore = create<EmotionStore>((set) => ({
         timestamp, // DBから取得したcreated_atを使用
         // 極座標系でのランダムな位置に配置（より自然な分布）
         x,
+        z,
       };
     });
     

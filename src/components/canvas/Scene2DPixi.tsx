@@ -283,14 +283,30 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
 
   // 表示する感情オブジェクトをフィルタリング
   const visibleEmotions = useMemo(() => {
-    return emotionObjects.filter((emotion) => {
-      // 深度0以下（地上エリア）の感情オブジェクトは表示しない（地下のみ表示）
-      if (emotion.depth <= 0) {
+    const filtered = emotionObjects.filter((emotion) => {
+      // 深度0未満（地上エリア）の感情オブジェクトは表示しない（地下のみ表示）
+      // 深度20以上（地下エリア）の感情オブジェクトを表示（最も新しいメッセージは深度20）
+      if (emotion.depth < 0) {
         return false;
       }
+      // 現在の深度から±800の範囲内の感情オブジェクトを表示
+      // 深度が正の値（深い）のメッセージも表示されるようにする
       const distance = Math.abs(emotion.depth - depth);
       return distance <= 800;
     });
+    
+    // デバッグ: フィルタリング結果をログ出力（常に出力）
+    if (emotionObjects.length > 0) {
+      console.log("[感情オブジェクト] フィルタリング結果:", {
+        total: emotionObjects.length,
+        filtered: filtered.length,
+        currentDepth: depth,
+        emotionDepths: emotionObjects.map(e => ({ id: e.id, depth: e.depth, category: e.category })),
+        filteredDepths: filtered.map(e => ({ id: e.id, depth: e.depth, category: e.category })),
+      });
+    }
+    
+    return filtered;
   }, [emotionObjects, depth]);
 
   // 他者の光をフィルタリング
