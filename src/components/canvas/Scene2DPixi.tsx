@@ -12,6 +12,19 @@ import { createSparkleLayer, SPARKLE_LAYERS } from "@/lib/pixi/sparkles";
 import { generatePlants2D, renderPlants2D } from "@/lib/pixi/plants/PlantSystem2D";
 import { CreatureSystem2D } from "@/lib/pixi/creatures/CreatureSystem2D";
 import { generateTerrariumPlants, renderTerrariumPlants, type TerrariumPlant } from "@/lib/pixi/terrarium/Terrarium2D";
+import {
+  calculateFogDensity,
+  fogDensityToOpacity,
+  drawFogLayer,
+  updateFogLayer,
+  type EmotionDistribution,
+} from "@/lib/pixi/fog/FogSystem2D";
+import {
+  calculateLightingSettings,
+  drawLightingLayer,
+  updateLightingLayer,
+  type LightingSettings,
+} from "@/lib/pixi/lighting/LightingSystem2D";
 
 /**
  * 全感情オブジェクトの分布を分析（地上エリア用）
@@ -53,8 +66,14 @@ function analyzeAllEmotionDistribution(
     confusion: totalStrength > 0 ? emotionScores.confusion / totalStrength : 0,
   };
 
+  // 平均的な感情の強度
+  const avgStrength = emotionObjects.length > 0
+    ? totalStrength / emotionObjects.length
+    : 0;
+
   return {
     normalizedScores,
+    avgStrength,
     totalCount: emotionObjects.length,
   };
 }
@@ -107,8 +126,14 @@ function analyzeEmotionDistribution(
     confusion: totalStrength > 0 ? emotionScores.confusion / totalStrength : 0,
   };
 
+  // 平均的な感情の強度
+  const avgStrength = nearbyEmotions.length > 0
+    ? totalStrength / nearbyEmotions.length
+    : 0;
+
   return {
     normalizedScores,
+    avgStrength,
     totalCount: nearbyEmotions.length,
   };
 }
@@ -220,6 +245,13 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
   const [fps, setFps] = useState(0);
   const frameCountRef = useRef(0);
   const lastTimeRef = useRef(Date.now());
+  
+  // フォグレイヤーの参照
+  const fogGraphicsRef = useRef<Graphics | null>(null);
+  // ライティングレイヤーの参照
+  const lightingGraphicsRef = useRef<Graphics | null>(null);
+  // 時間の参照（stressの点滅効果用）
+  const timeRef = useRef(0);
 
   // 地面の位置を計算
   // ファーストビューの画面の下1/3を深度0として、そこから上を地上、下を地下とする
@@ -273,6 +305,21 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
     }
   }, [emotionObjects, depth, isSurfaceArea]);
 
+  // フォグ密度の計算
+  const fogDensity = useMemo(() => {
+    return calculateFogDensity(depth, emotionDistribution as EmotionDistribution, isSurfaceArea);
+  }, [depth, emotionDistribution, isSurfaceArea]);
+
+  // フォグの不透明度を計算
+  const fogOpacity = useMemo(() => {
+    return fogDensityToOpacity(fogDensity);
+  }, [fogDensity]);
+
+  // ライティング設定の計算
+  const lightingSettings = useMemo(() => {
+    return calculateLightingSettings(depth, emotionDistribution as EmotionDistribution, isSurfaceArea);
+  }, [depth, emotionDistribution, isSurfaceArea]);
+
   // PixiJSアプリケーションの初期化
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -303,6 +350,7 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
 
         // メインコンテナを作成
         const container = new Container();
+        container.sortableChildren = true; // zIndexでソート可能にする
         app.stage.addChild(container);
         containerRef.current = container;
 
@@ -451,6 +499,138 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
     drawBackgroundAndGround(appRef.current, containerRef.current, depth, groundY, emotionDistribution);
   }, [depth, groundY, emotionDistribution, drawBackgroundAndGround]);
 
+  // フォグレイヤーの描画と更新
+  useEffect(() => {
+    if (!appRef.current || !containerRef.current) return;
+
+    const app = appRef.current;
+    const container = containerRef.current;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    // 既存のフォグレイヤーがある場合は更新、ない場合は新規作成
+    if (fogGraphicsRef.current) {
+      updateFogLayer(
+        fogGraphicsRef.current,
+        viewportWidth,
+        viewportHeight,
+        fogOpacity,
+        groundY,
+        isSurfaceArea
+      );
+    } else {
+      const fogGraphics = drawFogLayer(
+        app,
+        container,
+        viewportWidth,
+        viewportHeight,
+        fogOpacity,
+        groundY,
+        isSurfaceArea
+      );
+      fogGraphicsRef.current = fogGraphics;
+    }
+  }, [depth, groundY, fogOpacity, isSurfaceArea]);
+
+  // 時間の更新（stressの点滅効果用）
+  useEffect(() => {
+    const ticker = appRef.current?.ticker;
+    if (!ticker) return;
+
+    const updateTime = () => {
+      timeRef.current = Date.now();
+    };
+
+    ticker.add(updateTime);
+    return () => {
+      ticker.remove(updateTime);
+    };
+  }, []);
+
+  // ライティングレイヤーの描画と更新
+  // 現在はオフ（処理は残したまま）
+  useEffect(() => {
+    if (!appRef.current || !containerRef.current) return;
+
+    // ライティングをオフにする（処理は残したまま）
+    const lightingEnabled = false;
+    if (!lightingEnabled) {
+      // 既存のライティングレイヤーを削除
+      if (lightingGraphicsRef.current) {
+        const container = containerRef.current;
+        const existingLighting = container.getChildByName("lighting-layer");
+        if (existingLighting) {
+          container.removeChild(existingLighting);
+        }
+        lightingGraphicsRef.current = null;
+      }
+      return;
+    }
+
+    const app = appRef.current;
+    const container = containerRef.current;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const currentTime = timeRef.current;
+
+    // 既存のライティングレイヤーがある場合は更新、ない場合は新規作成
+    if (lightingGraphicsRef.current) {
+      updateLightingLayer(
+        lightingGraphicsRef.current,
+        viewportWidth,
+        viewportHeight,
+        lightingSettings,
+        currentTime
+      );
+    } else {
+      const lightingGraphics = drawLightingLayer(
+        app,
+        container,
+        viewportWidth,
+        viewportHeight,
+        lightingSettings,
+        currentTime
+      );
+      lightingGraphicsRef.current = lightingGraphics;
+    }
+  }, [lightingSettings]);
+
+  // ライティングレイヤーのアニメーション更新（stressの点滅効果用）
+  // 現在はオフ（処理は残したまま）
+  useEffect(() => {
+    if (!appRef.current || !containerRef.current) return;
+    
+    // ライティングをオフにする（処理は残したまま）
+    const lightingEnabled = false;
+    if (!lightingEnabled) return;
+    
+    if (!lightingSettings.stressBlink) return;
+
+    const ticker = appRef.current.ticker;
+    if (!ticker) return;
+
+    const updateLighting = () => {
+      if (!lightingGraphicsRef.current) return;
+
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const currentTime = Date.now();
+
+      updateLightingLayer(
+        lightingGraphicsRef.current,
+        viewportWidth,
+        viewportHeight,
+        lightingSettings,
+        currentTime
+      );
+    };
+
+    ticker.add(updateLighting);
+    return () => {
+      ticker.remove(updateLighting);
+    };
+  }, [lightingSettings]);
+
   // 感情オブジェクトの描画
   useEffect(() => {
     if (!appRef.current || !containerRef.current) return;
@@ -466,10 +646,15 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
     visibleEmotions.forEach((emotion) => {
       const viewportHeight = window.innerHeight;
       const depthDiff = emotion.depth - depth;
-      const emotionY = groundY + (depthDiff * 10);
       
-      // 画面外のオブジェクトは表示しない
-      if (emotionY < -100 || emotionY > viewportHeight + 100) {
+      // 感情オブジェクトのY位置を計算
+      // groundYが画面外になった場合でも、深度差に基づいて正しく配置
+      // 深度0の時のgroundYを基準に計算
+      const baseGroundY = viewportHeight * (2 / 3);
+      const emotionY = baseGroundY + (depthDiff * 10);
+      
+      // 画面外のオブジェクトは表示しない（マージンを広げて、より多くのオブジェクトを表示）
+      if (emotionY < -500 || emotionY > viewportHeight + 500) {
         return;
       }
 
@@ -487,8 +672,14 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
       
       sprite.name = `emotion-${emotion.id}`;
       
+      // スプライトのサイズを計算（createPixelSprite内の計算と同じロジック）
+      const baseSize = 12 + emotion.strength * 12;
+      const minSize = 10;
+      const maxSize = 36;
+      const finalSize = Math.max(minSize, Math.min(maxSize, baseSize));
+      
       // インタラクティブ機能を追加
-      sprite.interactive = true;
+      sprite.eventMode = "static"; // PixiJS v8の新しいプロパティ（interactiveも自動的に有効になる）
       sprite.cursor = "pointer";
       
       // ヒットエリアを拡大（見た目は変えずにタップしやすくする）
@@ -502,12 +693,47 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
         minHitAreaSize
       );
       
-      // イベントの処理順序を改善（前面のオブジェクトが優先されるように）
-      sprite.eventMode = "static"; // PixiJS v8の新しいプロパティ
+      // スプライトを前面に配置（他のレイヤーより上に）
+      sprite.zIndex = 100;
       
       // ホバー/クリックイベントのハンドラー
       let animationId: number | null = null;
       let targetScale = 1.0;
+      let glowGraphics: Graphics | null = null;
+      let glowOpacity = 0;
+      let targetGlowOpacity = 0;
+      
+      // グローエフェクトの作成
+      const createGlowEffect = () => {
+        if (glowGraphics) {
+          sprite.removeChild(glowGraphics);
+          glowGraphics.destroy();
+        }
+        
+        const emotionColor = getEmotionColor(emotion.category);
+        glowGraphics = new Graphics();
+        
+        // グローエフェクトを描画（外側に光るリング）
+        const glowSize = finalSize * 1.8; // スプライトより大きめ
+        const glowThickness = 4;
+        
+        // 外側のグロー（薄い）
+        glowGraphics.beginFill(emotionColor, 0);
+        glowGraphics.drawCircle(0, 0, glowSize);
+        glowGraphics.endFill();
+        
+        // 内側のグロー（濃い）
+        glowGraphics.beginFill(emotionColor, 0.6);
+        glowGraphics.drawCircle(0, 0, glowSize - glowThickness);
+        glowGraphics.endFill();
+        
+        glowGraphics.alpha = 0;
+        glowGraphics.zIndex = -1; // スプライトの後ろに配置
+        sprite.addChildAt(glowGraphics, 0);
+      };
+      
+      // グローエフェクトを作成
+      createGlowEffect();
       
       // スムーズなスケールアニメーション関数
       const animateScale = () => {
@@ -523,6 +749,23 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
         }
       };
       
+      // スムーズなグローアニメーション関数
+      const animateGlow = () => {
+        glowOpacity += (targetGlowOpacity - glowOpacity) * 0.15;
+        
+        if (glowGraphics) {
+          glowGraphics.alpha = glowOpacity;
+        }
+        
+        if (Math.abs(glowOpacity - targetGlowOpacity) > 0.01) {
+          requestAnimationFrame(animateGlow);
+        } else {
+          if (glowGraphics) {
+            glowGraphics.alpha = targetGlowOpacity;
+          }
+        }
+      };
+      
       // ホバー時の視覚的フィードバック
       sprite.on("pointerover", () => {
         setHoveredEmotion(emotion.id);
@@ -533,6 +776,9 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
         // スケールを1.2倍に（スムーズにアニメーション）
         targetScale = 1.2;
         animateScale();
+        // グローエフェクトを表示
+        targetGlowOpacity = 1.0;
+        animateGlow();
       });
       
       sprite.on("pointerout", () => {
@@ -546,13 +792,50 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
         // スケールを元に戻す（スムーズにアニメーション）
         targetScale = 1.0;
         animateScale();
+        // グローエフェクトを非表示
+        targetGlowOpacity = 0;
+        animateGlow();
       });
+      
+      // クリック/タップ時のパルスエフェクト
+      const triggerPulse = () => {
+        // パルスアニメーション（拡大→縮小）
+        const originalScale = sprite.scale.x;
+        const pulseScale = originalScale * 1.3;
+        
+        // 拡大
+        const expand = () => {
+          const currentScale = sprite.scale.x;
+          const newScale = currentScale + (pulseScale - currentScale) * 0.3;
+          sprite.scale.set(newScale, newScale);
+          
+          if (Math.abs(newScale - pulseScale) > 0.01) {
+            requestAnimationFrame(expand);
+          } else {
+            // 縮小
+            const contract = () => {
+              const currentScale = sprite.scale.x;
+              const newScale = currentScale + (originalScale - currentScale) * 0.3;
+              sprite.scale.set(newScale, newScale);
+              
+              if (Math.abs(newScale - originalScale) > 0.01) {
+                requestAnimationFrame(contract);
+              } else {
+                sprite.scale.set(originalScale, originalScale);
+              }
+            };
+            contract();
+          }
+        };
+        expand();
+      };
       
       // クリック/タップ時のモーダル表示
       // pointertapはpointerdownとpointerupの両方が成功した場合に発火（タッチデバイスに最適）
       sprite.on("pointertap", (event) => {
         // イベントの伝播を停止して、モーダルの背景クリックと競合しないようにする
         event.stopPropagation();
+        triggerPulse();
         setSelectedEmotion(emotion.id);
       });
       
@@ -561,6 +844,7 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
         event.stopPropagation();
         // タッチデバイスの場合は即座に選択（ドラッグを防ぐため）
         if (isTouchDevice) {
+          triggerPulse();
           setSelectedEmotion(emotion.id);
         }
       });
@@ -570,16 +854,75 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
         event.stopPropagation();
       });
       
+      // 選択時のハイライト表示
+      const updateSelectionHighlight = () => {
+        // 既存のハイライトを削除
+        const existingHighlight = sprite.children.find((child) => child.name === "selection-highlight");
+        if (existingHighlight) {
+          sprite.removeChild(existingHighlight);
+          existingHighlight.destroy();
+        }
+        
+        // 選択されている場合はハイライトを表示
+        if (selectedEmotionId === emotion.id) {
+          const highlightGraphics = new Graphics();
+          highlightGraphics.name = "selection-highlight";
+          
+          const emotionColor = getEmotionColor(emotion.category);
+          const highlightSize = finalSize * 2.2;
+          const highlightThickness = 3;
+          
+          // 外側のリング（薄い）
+          highlightGraphics.lineStyle(highlightThickness, emotionColor, 0.4);
+          highlightGraphics.drawCircle(0, 0, highlightSize);
+          
+          // 内側のリング（濃い）
+          highlightGraphics.lineStyle(highlightThickness, emotionColor, 0.8);
+          highlightGraphics.drawCircle(0, 0, highlightSize - highlightThickness * 2);
+          
+          highlightGraphics.zIndex = 1; // スプライトの前に配置
+          sprite.addChild(highlightGraphics);
+        }
+      };
+      
+      // 初期状態のハイライトを更新
+      updateSelectionHighlight();
+      
+      // selectedEmotionIdが変更されたときにハイライトを更新
+      const checkSelection = () => {
+        updateSelectionHighlight();
+      };
+      
+      // 定期的に選択状態をチェック（selectedEmotionIdの変更を検知）
+      const selectionCheckInterval = setInterval(checkSelection, 100);
+      
       // スプライトが破棄されたときにアニメーションをクリーンアップ
       sprite.on("destroyed", () => {
         if (animationId !== null) {
           cancelAnimationFrame(animationId);
         }
+        if (selectionCheckInterval) {
+          clearInterval(selectionCheckInterval);
+        }
+        if (glowGraphics) {
+          glowGraphics.destroy();
+        }
       });
       
-      container.addChild(sprite);
+      // スプライトを追加（フォグレイヤーより前に配置）
+      sprite.zIndex = 100; // フォグ（50）とライティング（60）より前に配置
+      
+      // フォグレイヤーの後ろにスプライトを配置（zIndexで制御）
+      const fogLayer = container.getChildByName("fog-layer");
+      if (fogLayer) {
+        // フォグレイヤーの後ろに配置（ただしzIndexで前面に表示）
+        const fogIndex = container.getChildIndex(fogLayer);
+        container.addChildAt(sprite, fogIndex + 1);
+      } else {
+        container.addChild(sprite);
+      }
     });
-  }, [visibleEmotions, groundY, depth, setHoveredEmotion, setSelectedEmotion, hoveredEmotionId]);
+  }, [visibleEmotions, groundY, depth, setHoveredEmotion, setSelectedEmotion, hoveredEmotionId, selectedEmotionId]);
 
   // 植物システムの描画
   useEffect(() => {
@@ -1045,6 +1388,11 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
               <div>エリア: <span className={isSurfaceArea ? "text-green-400" : "text-blue-400"}>
                 {isSurfaceArea ? "地上" : "地下"}
               </span></div>
+              <div>フォグ密度: <span className="text-purple-400">{fogDensity.toFixed(4)}</span></div>
+              <div>フォグ不透明度: <span className="text-purple-400">{(fogOpacity * 100).toFixed(1)}%</span></div>
+              <div>ライティング強度: <span className="text-yellow-400">{(lightingSettings.ambientIntensity * 100).toFixed(1)}%</span></div>
+              <div>ライト色: <span className="text-yellow-400" style={{ color: lightingSettings.lightColor }}>{lightingSettings.lightColor}</span></div>
+              <div>ストレス点滅: <span className={lightingSettings.stressBlink ? "text-red-400" : "text-gray-400"}>{lightingSettings.stressBlink ? "ON" : "OFF"}</span></div>
             </div>
 
             {/* 描画オブジェクト数 */}
