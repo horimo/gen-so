@@ -45,8 +45,18 @@ export function createSparkleLayer(
 ): Container {
   const sparkleContainer = new Container();
   sparkleContainer.name = `sparkles-${config.depthOffset}`;
-  sparkleContainer.visible = true; // 明示的に表示
-  sparkleContainer.alpha = 1.0; // 不透明度を明示的に設定
+  
+  // 深度に基づいて不透明度を計算（深度0から徐々に表示）
+  // 深度0以下（地上）: alpha = 0, 深度0-50: alpha = 0-1の線形補間, 深度50以上: alpha = 1
+  const calculateAlpha = (depth: number): number => {
+    if (depth <= 0) return 0; // 地上エリアでは非表示
+    if (depth >= 50) return 1; // 深度50以上で完全表示
+    return depth / 50; // 0から50の範囲で0から1に線形補間
+  };
+  
+  const initialAlpha = calculateAlpha(currentDepth);
+  sparkleContainer.visible = initialAlpha > 0; // 不透明度が0より大きい場合のみ表示
+  sparkleContainer.alpha = initialAlpha;
   
   // 深度オフセットに応じたY位置の基準を保持
   let lastDepth = currentDepth;
@@ -245,29 +255,30 @@ export function createSparkleLayer(
 
 /**
  * 星屑レイヤーの設定（3D版の設定を参考）
+ * 感情オブジェクトが目立つように、控えめな設定に調整
  */
 export const SPARKLE_LAYERS: SparkleConfig[] = [
   {
-    count: 200,
-    size: 4, // サイズを大きく（確実に表示されるように）
+    count: 120, // 200 → 120に削減
+    size: 2.5, // 4 → 2.5に縮小
     speed: 0.4,
-    opacity: 0.8, // 不透明度も上げる
+    opacity: 0.35, // 0.8 → 0.35に下げる（控えめに）
     color: "#ffffff",
     depthOffset: 0, // 現在の深度
   },
   {
-    count: 150,
-    size: 3, // サイズを大きく
+    count: 80, // 150 → 80に削減
+    size: 2, // 3 → 2に縮小
     speed: 0.3,
-    opacity: 0.6, // 不透明度も上げる
+    opacity: 0.25, // 0.6 → 0.25に下げる
     color: "#a0a0ff",
     depthOffset: -500, // 500深度分後ろ
   },
   {
-    count: 100,
-    size: 2, // サイズを大きく
+    count: 50, // 100 → 50に削減
+    size: 1.5, // 2 → 1.5に縮小
     speed: 0.2,
-    opacity: 0.5, // 不透明度も上げる
+    opacity: 0.18, // 0.5 → 0.18に下げる
     color: "#6666ff",
     depthOffset: -1000, // 1000深度分後ろ
   },

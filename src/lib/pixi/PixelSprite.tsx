@@ -40,9 +40,10 @@ export function createPixelSprite({
   container.y = y;
 
   // サイズを計算（強度に応じて変化）
-  const baseSize = size || 8 + strength * 8;
-  const minSize = 6;
-  const maxSize = 24;
+  // 感情オブジェクトを大きくして選択しやすくする
+  const baseSize = size || 12 + strength * 12; // 8 → 12に増加（1.5倍）
+  const minSize = 10; // 6 → 10に増加
+  const maxSize = 36; // 24 → 36に増加（1.5倍）
   const finalSize = Math.max(minSize, Math.min(maxSize, baseSize));
 
   // 色を取得
