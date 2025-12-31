@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useMemo, useState } from "react";
-import { Application, Graphics, Container, Rectangle } from "pixi.js";
+import { useEffect, useRef, useMemo, useState, useCallback } from "react";
+import { Application, Graphics, Container, Rectangle, FederatedPointerEvent } from "pixi.js";
 import { PixelateFilter } from "pixi-filters";
 import { useEmotionStore } from "@/store/useEmotionStore";
 import type { EmotionObject } from "@/store/useEmotionStore";
@@ -9,7 +9,8 @@ import { createPixelSprite } from "@/lib/pixi/PixelSprite";
 import { getEmotionColor } from "@/lib/pixi/utils/colorPalette";
 import { useInteractionStore } from "@/store/useInteractionStore";
 import { createSparkleLayer, SPARKLE_LAYERS } from "@/lib/pixi/sparkles";
-import { generatePlants2D, renderPlants2D } from "@/lib/pixi/plants/PlantSystem2D";
+import { generatePlants2D } from "@/lib/pixi/plants/PlantSystem2D";
+import { createPlantSprite } from "@/lib/pixi/plants/createPlantSprite";
 import { CreatureSystem2D } from "@/lib/pixi/creatures/CreatureSystem2D";
 import { generateTerrariumPlants, renderTerrariumPlants, type TerrariumPlant } from "@/lib/pixi/terrarium/Terrarium2D";
 import {
@@ -27,6 +28,7 @@ import {
 } from "@/lib/pixi/lighting/LightingSystem2D";
 import { createEmotionParticleSystem } from "@/lib/pixi/effects/EmotionParticles";
 import { createTransitionEffect, detectDepthJump } from "@/lib/pixi/effects/TransitionEffect";
+import { ObjectPoolManager } from "@/lib/pixi/utils/ObjectPool";
 
 /**
  * 全感情オブジェクトの分布を分析（地上エリア用）
@@ -258,6 +260,14 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
   const transitionEffectRef = useRef<ReturnType<typeof createTransitionEffect> | null>(null);
   // 前回の深度を記録（ジャンプ検知用）
   const previousDepthRef = useRef(depth);
+  // オブジェクトプーリングマネージャー
+  const poolManagerRef = useRef<ObjectPoolManager | null>(null);
+  // アクティブな感情オブジェクトのマップ（プーリング用）
+  const activeEmotionSpritesRef = useRef<Map<string, Container>>(new Map());
+  // アクティブな植物スプライトのマップ（プーリング用）
+  const activePlantSpritesRef = useRef<Map<string, Container>>(new Map());
+  // 生物システムコンテナの参照（プーリング用）
+  const creatureSystemContainerRef = useRef<Container | null>(null);
 
   // 地面の位置を計算
   // ファーストビューの画面の下1/3を深度0として、そこから上を地上、下を地下とする
@@ -353,6 +363,10 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
         }
 
         appRef.current = app;
+
+        // オブジェクトプーリングマネージャーを初期化
+        const poolManager = new ObjectPoolManager();
+        poolManagerRef.current = poolManager;
 
         // メインコンテナを作成
         const container = new Container();
@@ -461,15 +475,14 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
     };
   }, []);
 
-  // 背景と地面を描画する関数
-  const drawBackgroundAndGround = useMemo(() => {
-    return (
-      app: Application,
-      container: Container,
-      currentDepth: number,
-      currentGroundY: number,
-      currentEmotionDistribution: ReturnType<typeof analyzeEmotionDistribution>
-    ) => {
+  // 背景と地面を描画する関数（useCallbackでメモ化）
+  const drawBackgroundAndGround = useCallback((
+    app: Application,
+    container: Container,
+    currentDepth: number,
+    currentGroundY: number,
+    currentEmotionDistribution: ReturnType<typeof analyzeEmotionDistribution>
+  ) => {
       // 既存の背景と地面を削除
       const existingBg = container.getChildByName("background");
       const existingGround = container.getChildByName("ground");
@@ -513,7 +526,6 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
       groundGraphics.drawRect(0, currentGroundY, viewportWidth, viewportHeight * 0.33);
       groundGraphics.endFill();
       container.addChild(groundGraphics);
-    };
   }, []);
 
   // 背景と地面の描画
@@ -662,11 +674,27 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
     const container = containerRef.current;
     const app = appRef.current;
 
-    // 既存の感情オブジェクトを削除
-    const existingEmotions = container.children.filter((child) => child.name?.startsWith("emotion-"));
-    existingEmotions.forEach((child) => container.removeChild(child));
+    // 現在表示されている感情オブジェクトのIDセット
+    const currentEmotionIds = new Set(
+      Array.from(activeEmotionSpritesRef.current.keys())
+    );
+    const targetEmotionIds = new Set(visibleEmotions.map((e) => e.id));
 
-    // 新しい感情オブジェクトを追加
+    // 表示されなくなった感情オブジェクトを非表示にする（削除はしない）
+    currentEmotionIds.forEach((emotionId) => {
+      if (!targetEmotionIds.has(emotionId)) {
+        const sprite = activeEmotionSpritesRef.current.get(emotionId);
+        if (sprite) {
+          sprite.visible = false;
+          // コンテナから削除（プールには残す）
+          if (container.children.includes(sprite)) {
+            container.removeChild(sprite);
+          }
+        }
+      }
+    });
+
+    // 新しい感情オブジェクトを追加または更新
     visibleEmotions.forEach((emotion) => {
       const viewportHeight = window.innerHeight;
       const depthDiff = emotion.depth - depth;
@@ -679,22 +707,46 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
       
       // 画面外のオブジェクトは表示しない（マージンを広げて、より多くのオブジェクトを表示）
       if (emotionY < -500 || emotionY > viewportHeight + 500) {
+        // 既存のスプライトがあれば非表示にする
+        const existingSprite = activeEmotionSpritesRef.current.get(emotion.id);
+        if (existingSprite) {
+          existingSprite.visible = false;
+          if (container.children.includes(existingSprite)) {
+            container.removeChild(existingSprite);
+          }
+        }
         return;
       }
 
       // X位置を計算（画面幅の中央を基準に）
       const emotionX = (window.innerWidth / 2) + (emotion.x * 10); // emotion.xは-15から15の範囲
 
-      const sprite = createPixelSprite({
-        app,
-        category: emotion.category,
-        strength: emotion.strength,
-        x: emotionX,
-        y: emotionY,
-        seed: emotion.id.charCodeAt(0) + emotion.depth, // confusion用のシード
-      });
+      // 既存のスプライトを再利用
+      let sprite = activeEmotionSpritesRef.current.get(emotion.id);
+      let isNewSprite = false;
+
+      if (!sprite) {
+        // 新規作成
+        sprite = createPixelSprite({
+          app,
+          category: emotion.category,
+          strength: emotion.strength,
+          x: emotionX,
+          y: emotionY,
+          seed: emotion.id.charCodeAt(0) + emotion.depth, // confusion用のシード
+        });
+        
+        sprite.name = `emotion-${emotion.id}`;
+        isNewSprite = true;
+      } else {
+        // 既存のスプライトを再利用（位置を更新）
+        sprite.x = emotionX;
+        sprite.y = emotionY;
+        sprite.visible = true;
+      }
       
-      sprite.name = `emotion-${emotion.id}`;
+      // スプライトをアクティブなマップに追加
+      activeEmotionSpritesRef.current.set(emotion.id, sprite);
       
       // スプライトのサイズを計算（createPixelSprite内の計算と同じロジック）
       const baseSize = 12 + emotion.strength * 12;
@@ -702,65 +754,67 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
       const maxSize = 36;
       const finalSize = Math.max(minSize, Math.min(maxSize, baseSize));
       
-      // インタラクティブ機能を追加
-      sprite.eventMode = "static"; // PixiJS v8の新しいプロパティ（interactiveも自動的に有効になる）
-      sprite.cursor = "pointer";
-      
-      // ヒットエリアを拡大（見た目は変えずにタップしやすくする）
-      // タッチデバイスではさらに大きなヒットエリアを設定
-      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-      const minHitAreaSize = isTouchDevice ? 100 : 80; // タッチデバイス: 100px、マウス: 80px
-      sprite.hitArea = new Rectangle(
-        -minHitAreaSize / 2,
-        -minHitAreaSize / 2,
-        minHitAreaSize,
-        minHitAreaSize
-      );
-      
-      // スプライトを前面に配置（他のレイヤーより上に）
-      sprite.zIndex = 100;
-      
-      // ホバー/クリックイベントのハンドラー
-      let animationId: number | null = null;
-      let targetScale = 1.0;
-      let glowGraphics: Graphics | null = null;
-      let glowOpacity = 0;
-      let targetGlowOpacity = 0;
-      
-      // グローエフェクトの作成
-      const createGlowEffect = () => {
-        if (glowGraphics) {
-          sprite.removeChild(glowGraphics);
-          glowGraphics.destroy();
-        }
+      // 新規作成時のみイベントハンドラーを設定
+      if (isNewSprite) {
+        // インタラクティブ機能を追加
+        sprite.eventMode = "static"; // PixiJS v8の新しいプロパティ（interactiveも自動的に有効になる）
+        sprite.cursor = "pointer";
         
-        const emotionColor = getEmotionColor(emotion.category);
-        glowGraphics = new Graphics();
+        // ヒットエリアを拡大（見た目は変えずにタップしやすくする）
+        // タッチデバイスではさらに大きなヒットエリアを設定
+        const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        const minHitAreaSize = isTouchDevice ? 100 : 80; // タッチデバイス: 100px、マウス: 80px
+        sprite.hitArea = new Rectangle(
+          -minHitAreaSize / 2,
+          -minHitAreaSize / 2,
+          minHitAreaSize,
+          minHitAreaSize
+        );
         
-        // グローエフェクトを描画（外側に光るリング）
-        const glowSize = finalSize * 1.8; // スプライトより大きめ
-        const glowThickness = 4;
+        // スプライトを前面に配置（他のレイヤーより上に）
+        sprite.zIndex = 100;
         
-        // 外側のグロー（薄い）
-        glowGraphics.beginFill(emotionColor, 0);
-        glowGraphics.drawCircle(0, 0, glowSize);
-        glowGraphics.endFill();
+        // ホバー/クリックイベントのハンドラー
+        let animationId: number | null = null;
+        let targetScale = 1.0;
+        let glowGraphics: Graphics | null = null;
+        let glowOpacity = 0;
+        let targetGlowOpacity = 0;
         
-        // 内側のグロー（濃い）
-        glowGraphics.beginFill(emotionColor, 0.6);
-        glowGraphics.drawCircle(0, 0, glowSize - glowThickness);
-        glowGraphics.endFill();
+        // グローエフェクトの作成
+        const createGlowEffect = () => {
+          if (glowGraphics) {
+            sprite.removeChild(glowGraphics);
+            glowGraphics.destroy();
+          }
+          
+          const emotionColor = getEmotionColor(emotion.category);
+          glowGraphics = new Graphics();
+          
+          // グローエフェクトを描画（外側に光るリング）
+          const glowSize = finalSize * 1.8; // スプライトより大きめ
+          const glowThickness = 4;
+          
+          // 外側のグロー（薄い）
+          glowGraphics.beginFill(emotionColor, 0);
+          glowGraphics.drawCircle(0, 0, glowSize);
+          glowGraphics.endFill();
+          
+          // 内側のグロー（濃い）
+          glowGraphics.beginFill(emotionColor, 0.6);
+          glowGraphics.drawCircle(0, 0, glowSize - glowThickness);
+          glowGraphics.endFill();
+          
+          glowGraphics.alpha = 0;
+          glowGraphics.zIndex = -1; // スプライトの後ろに配置
+          sprite.addChildAt(glowGraphics, 0);
+        };
         
-        glowGraphics.alpha = 0;
-        glowGraphics.zIndex = -1; // スプライトの後ろに配置
-        sprite.addChildAt(glowGraphics, 0);
-      };
+        // グローエフェクトを作成
+        createGlowEffect();
       
-      // グローエフェクトを作成
-      createGlowEffect();
-      
-      // スムーズなスケールアニメーション関数
-      const animateScale = () => {
+        // スムーズなスケールアニメーション関数
+        const animateScale = () => {
         const currentScale = sprite.scale.x;
         const newScale = currentScale + (targetScale - currentScale) * 0.2;
         sprite.scale.set(newScale, newScale);
@@ -856,7 +910,7 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
       
       // クリック/タップ時のモーダル表示
       // pointertapはpointerdownとpointerupの両方が成功した場合に発火（タッチデバイスに最適）
-      sprite.on("pointertap", (event) => {
+      sprite.on("pointertap", (event: FederatedPointerEvent) => {
         // イベントの伝播を停止して、モーダルの背景クリックと競合しないようにする
         event.stopPropagation();
         triggerPulse();
@@ -864,7 +918,7 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
       });
       
       // pointerdownでも処理（即座に反応するため）
-      sprite.on("pointerdown", (event) => {
+      sprite.on("pointerdown", (event: FederatedPointerEvent) => {
         event.stopPropagation();
         // タッチデバイスの場合は即座に選択（ドラッグを防ぐため）
         if (isTouchDevice) {
@@ -874,7 +928,7 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
       });
       
       // pointerupでもイベントを停止（タッチデバイス対応）
-      sprite.on("pointerup", (event) => {
+      sprite.on("pointerup", (event: FederatedPointerEvent) => {
         event.stopPropagation();
       });
       
@@ -933,17 +987,29 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
         }
       });
       
-      // スプライトを追加（フォグレイヤーより前に配置）
-      sprite.zIndex = 100; // フォグ（50）とライティング（60）より前に配置
-      
-      // フォグレイヤーの後ろにスプライトを配置（zIndexで制御）
-      const fogLayer = container.getChildByName("fog-layer");
-      if (fogLayer) {
-        // フォグレイヤーの後ろに配置（ただしzIndexで前面に表示）
-        const fogIndex = container.getChildIndex(fogLayer);
-        container.addChildAt(sprite, fogIndex + 1);
+        // スプライトを追加（フォグレイヤーより前に配置）
+        sprite.zIndex = 100; // フォグ（50）とライティング（60）より前に配置
+        
+        // フォグレイヤーの後ろにスプライトを配置（zIndexで制御）
+        const fogLayer = container.getChildByName("fog-layer");
+        if (fogLayer) {
+          // フォグレイヤーの後ろに配置（ただしzIndexで前面に表示）
+          const fogIndex = container.getChildIndex(fogLayer);
+          container.addChildAt(sprite, fogIndex + 1);
+        } else {
+          container.addChild(sprite);
+        }
       } else {
-        container.addChild(sprite);
+        // 既存のスプライトを再利用（コンテナに追加するだけ）
+        if (!container.children.includes(sprite)) {
+          const fogLayer = container.getChildByName("fog-layer");
+          if (fogLayer) {
+            const fogIndex = container.getChildIndex(fogLayer);
+            container.addChildAt(sprite, fogIndex + 1);
+          } else {
+            container.addChild(sprite);
+          }
+        }
       }
     });
   }, [visibleEmotions, groundY, depth, setHoveredEmotion, setSelectedEmotion]);
@@ -1114,7 +1180,7 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
     });
   }, [depth, emotionObjects]);
 
-  // 植物システムの描画
+  // 植物システムの描画（プーリング対応）
   useEffect(() => {
     if (!appRef.current || !containerRef.current) return;
 
@@ -1129,8 +1195,77 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
       isSurfaceArea,
     });
 
-    // 植物を描画
-    renderPlants2D(plants, app, container, isSurfaceArea);
+    // 現在表示されている植物のIDセット
+    const currentPlantIds = new Set(
+      Array.from(activePlantSpritesRef.current.keys())
+    );
+    const targetPlantIds = new Set(plants.map((p) => p.id));
+
+    // 表示されなくなった植物を非表示にする（削除はしない）
+    currentPlantIds.forEach((plantId: string) => {
+      if (!targetPlantIds.has(plantId)) {
+        const sprite = activePlantSpritesRef.current.get(plantId);
+        if (sprite) {
+          sprite.visible = false;
+          if (container.children.includes(sprite)) {
+            container.removeChild(sprite);
+          }
+        }
+      }
+    });
+
+    // 新しい植物を追加または更新
+    const viewportHeight = window.innerHeight;
+    plants.forEach((plant) => {
+      // 画面外の植物は表示しない
+      if (plant.y < -100 || plant.y > viewportHeight + 100) {
+        const existingSprite = activePlantSpritesRef.current.get(plant.id);
+        if (existingSprite) {
+          existingSprite.visible = false;
+          if (container.children.includes(existingSprite)) {
+            container.removeChild(existingSprite);
+          }
+        }
+        return;
+      }
+
+      // 既存のスプライトを再利用
+      let sprite = activePlantSpritesRef.current.get(plant.id);
+      let isNewSprite = false;
+
+      if (!sprite) {
+        // 新規作成
+        sprite = createPlantSprite({
+          app,
+          category: plant.category,
+          strength: plant.strength,
+          x: plant.x,
+          y: plant.y,
+          isSurface: isSurfaceArea,
+          seed: plant.id.charCodeAt(0) + plant.createdAt,
+        });
+        sprite.name = `plant-${plant.id}`;
+        isNewSprite = true;
+      } else {
+        // 既存のスプライトを再利用（位置を更新）
+        sprite.x = plant.x;
+        sprite.y = plant.y;
+        sprite.visible = true;
+      }
+
+      // スプライトをアクティブなマップに追加
+      activePlantSpritesRef.current.set(plant.id, sprite);
+
+      // 新規作成時のみコンテナに追加
+      if (isNewSprite) {
+        container.addChild(sprite);
+      } else {
+        // 既存のスプライトを再利用（コンテナに追加するだけ）
+        if (!container.children.includes(sprite)) {
+          container.addChild(sprite);
+        }
+      }
+    });
   }, [emotionObjects, depth, groundY, isSurfaceArea]);
 
   // 生物システムの描画
@@ -1154,8 +1289,26 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
       groundY,
     });
 
-    // 新しい生物レイヤーを追加
-    container.addChild(creatureLayer);
+    // 既存の生物システムコンテナを再利用
+    let existingCreatureLayer = creatureSystemContainerRef.current;
+
+    if (!existingCreatureLayer || existingCreatureLayer.destroyed) {
+      // 新規作成
+      creatureSystemContainerRef.current = creatureLayer;
+      container.addChild(creatureLayer);
+    } else {
+      // 既存のコンテナを再利用
+      // 既存のスプライトをクリア
+      existingCreatureLayer.removeChildren();
+      
+      // 新しいスプライトを既存のコンテナに追加
+      creatureLayer.children.forEach((child) => {
+        existingCreatureLayer!.addChild(child);
+      });
+      
+      // 新しいコンテナを破棄（スプライトは既存のコンテナに移動済み）
+      creatureLayer.destroy({ children: false });
+    }
 
     return () => {
       // コンポーネントがアンマウントされたときに生物レイヤーを削除
