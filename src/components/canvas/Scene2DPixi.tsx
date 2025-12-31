@@ -26,6 +26,7 @@ import {
   type LightingSettings,
 } from "@/lib/pixi/lighting/LightingSystem2D";
 import { createEmotionParticleSystem } from "@/lib/pixi/effects/EmotionParticles";
+import { createTransitionEffect, detectDepthJump } from "@/lib/pixi/effects/TransitionEffect";
 
 /**
  * 全感情オブジェクトの分布を分析（地上エリア用）
@@ -253,6 +254,10 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
   const lightingGraphicsRef = useRef<Graphics | null>(null);
   // 時間の参照（stressの点滅効果用）
   const timeRef = useRef(0);
+  // トランジションエフェクトの参照
+  const transitionEffectRef = useRef<ReturnType<typeof createTransitionEffect> | null>(null);
+  // 前回の深度を記録（ジャンプ検知用）
+  const previousDepthRef = useRef(depth);
 
   // 地面の位置を計算
   // ファーストビューの画面の下1/3を深度0として、そこから上を地上、下を地下とする
@@ -401,14 +406,44 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
           }
         }, 0);
 
+        // トランジションエフェクトを作成
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const transitionEffect = createTransitionEffect(
+          containerRef.current!,
+          viewportWidth,
+          viewportHeight,
+          app.ticker
+        );
+        transitionEffectRef.current = transitionEffect;
+
+        // トランジションエフェクトの更新をtickerに追加
+        let lastTransitionTime = Date.now();
+        const updateTransition = () => {
+          const currentTime = Date.now();
+          const deltaTime = (currentTime - lastTransitionTime) / 1000; // 秒単位
+          lastTransitionTime = currentTime;
+          transitionEffect.updateTransition(deltaTime);
+        };
+        app.ticker.add(updateTransition);
+
         // リサイズハンドラー
         const handleResize = () => {
           app.renderer.resize(window.innerWidth, window.innerHeight);
+          // トランジションエフェクトのフェードレイヤーもリサイズ
+          if (transitionEffectRef.current) {
+            const fadeLayer = transitionEffectRef.current.fadeLayer;
+            fadeLayer.clear();
+            fadeLayer.beginFill(0x000000, 1.0);
+            fadeLayer.drawRect(0, 0, window.innerWidth, window.innerHeight);
+            fadeLayer.endFill();
+          }
         };
         window.addEventListener("resize", handleResize);
 
         return () => {
           window.removeEventListener("resize", handleResize);
+          app.ticker.remove(updateTransition);
         };
       } catch (error) {
         console.error("PixiJS初期化エラー:", error);
@@ -1021,6 +1056,20 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
     // クリーンアップ関数（コンポーネントのアンマウント時のみ実行）
     // 注意: このクリーンアップは、感情オブジェクトの追加/削除時には実行されない
   }, [visibleEmotionIdsString, depth]);
+
+  // 深度ジャンプを検知してトランジションを開始
+  useEffect(() => {
+    if (!transitionEffectRef.current) return;
+
+    const previousDepth = previousDepthRef.current;
+    const { isJump, direction } = detectDepthJump(depth, previousDepth, 100);
+
+    if (isJump && direction) {
+      transitionEffectRef.current.startTransition(direction);
+    }
+
+    previousDepthRef.current = depth;
+  }, [depth]);
 
   // スクロール時にパーティクルコンテナの位置を更新
   useEffect(() => {
