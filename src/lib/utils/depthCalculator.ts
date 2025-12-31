@@ -50,7 +50,8 @@ export function calculateDepthsFromCreatedAts(
   // 各作成日時から深度を計算（最も古いものを基準に）
   return createdAts.map((createdAt) => {
     const createdDate = typeof createdAt === "string" ? new Date(createdAt) : createdAt;
-    const timeDiff = createdDate.getTime() - oldestDateObj.getTime(); // ミリ秒
+    // 古いものから新しいものを引く（古いものは正の値、新しいものは負の値）
+    const timeDiff = oldestDateObj.getTime() - createdDate.getTime(); // ミリ秒
     
     // 経過時間を深度に変換
     // 1日 = 86400000ミリ秒
