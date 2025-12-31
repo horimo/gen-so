@@ -2,12 +2,12 @@ import type { StrataObject } from "@/app/api/strata/route";
 
 /**
  * 言層（Strata）オブジェクトを保存するAPIクライアント関数
+ * depth_yは不要（created_atから自動計算される）
  */
 export async function saveStrataObject(
   message: string,
   category: StrataObject["category"],
   strength: number,
-  depth_y: number,
   analysis?: string
 ): Promise<StrataObject> {
   const response = await fetch("/api/strata", {
@@ -19,7 +19,6 @@ export async function saveStrataObject(
       message,
       category,
       strength,
-      depth_y,
       analysis,
     }),
   });

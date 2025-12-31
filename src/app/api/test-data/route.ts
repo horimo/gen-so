@@ -108,46 +108,51 @@ export async function POST(request: NextRequest) {
       message: string;
       category: typeof categories[number];
       strength: number;
-      depth_y: number;
       analysis: string;
+      created_at: string; // created_atを指定（depth_yは不要）
     }> = [];
+    
+    // 基準日時（現在時刻）
+    const now = new Date();
 
     // クラスター（塊）を作成してバラツキを出す
-    // 各クラスターは特定の深度に複数のオブジェクトを集中させる
+    // 各クラスターは特定の日時（過去からの経過日数）に複数のオブジェクトを集中させる
+    // 古いメッセージ（過去のcreated_at）→ 深い深度（大きい値）
+    // 新しいメッセージ（最近のcreated_at）→ 浅い深度（小さい値）
     const clusters: Array<{
-      centerDepth: number; // クラスターの中心深度
+      daysAgo: number; // 何日前のメッセージか（クラスターの中心）
       count: number; // このクラスターに配置するオブジェクト数
       strengthRange: [number, number]; // 強度の範囲 [min, max]
       dominantCategory?: typeof categories[number]; // このクラスターの主要な感情カテゴリ
       categoryMix: number; // 0-1: 0=dominantCategoryのみ、1=全カテゴリ均等
     }> = [
-      // 浅い深度のクラスター（強い感情が集中）
-      { centerDepth: 200, count: 8, strengthRange: [0.75, 0.95], dominantCategory: "joy", categoryMix: 0.3 },
-      { centerDepth: 350, count: 5, strengthRange: [0.5, 0.7], dominantCategory: "peace", categoryMix: 0.5 },
-      // 中深度のクラスター（様々な感情が混在）
-      { centerDepth: 550, count: 12, strengthRange: [0.6, 0.9], dominantCategory: "inspiration", categoryMix: 0.4 },
-      { centerDepth: 750, count: 6, strengthRange: [0.4, 0.65], dominantCategory: "nostalgia", categoryMix: 0.6 },
-      // 深い深度のクラスター（強い負の感情）
-      { centerDepth: 1000, count: 10, strengthRange: [0.7, 0.95], dominantCategory: "stress", categoryMix: 0.3 },
-      { centerDepth: 1250, count: 7, strengthRange: [0.5, 0.75], dominantCategory: "sadness", categoryMix: 0.4 },
-      // さらに深い深度（弱い感情が散在）
-      { centerDepth: 1500, count: 9, strengthRange: [0.3, 0.6], dominantCategory: "confusion", categoryMix: 0.5 },
-      { centerDepth: 1750, count: 4, strengthRange: [0.4, 0.7], categoryMix: 1.0 }, // 全カテゴリ均等
+      // 新しいメッセージ（浅い深度）のクラスター
+      { daysAgo: 2, count: 8, strengthRange: [0.75, 0.95], dominantCategory: "joy", categoryMix: 0.3 },
+      { daysAgo: 5, count: 5, strengthRange: [0.5, 0.7], dominantCategory: "peace", categoryMix: 0.5 },
+      // 中程度の古さのメッセージ（中深度）のクラスター
+      { daysAgo: 10, count: 12, strengthRange: [0.6, 0.9], dominantCategory: "inspiration", categoryMix: 0.4 },
+      { daysAgo: 15, count: 6, strengthRange: [0.4, 0.65], dominantCategory: "nostalgia", categoryMix: 0.6 },
+      // 古いメッセージ（深い深度）のクラスター
+      { daysAgo: 30, count: 10, strengthRange: [0.7, 0.95], dominantCategory: "stress", categoryMix: 0.3 },
+      { daysAgo: 45, count: 7, strengthRange: [0.5, 0.75], dominantCategory: "sadness", categoryMix: 0.4 },
+      // さらに古いメッセージ（非常に深い深度）のクラスター
+      { daysAgo: 60, count: 9, strengthRange: [0.3, 0.6], dominantCategory: "confusion", categoryMix: 0.5 },
+      { daysAgo: 90, count: 4, strengthRange: [0.4, 0.7], categoryMix: 1.0 }, // 全カテゴリ均等
     ];
 
     let messageIndex = 0;
 
     // 各クラスターにオブジェクトを配置
     clusters.forEach((cluster) => {
-      const clusterSpread = 20 + Math.floor(Math.random() * 15); // クラスターの広がり（20-35）
+      const daySpread = 1 + Math.random() * 2; // クラスターの広がり（1-3日）
       
       for (let i = 0; i < cluster.count; i++) {
-        // クラスター中心の周辺に配置（±clusterSpreadの範囲）
-        const offset = (Math.random() - 0.5) * clusterSpread * 2;
-        const depth = Math.round(cluster.centerDepth + offset);
+        // クラスター中心の周辺に配置（±daySpread日の範囲）
+        const dayOffset = (Math.random() - 0.5) * daySpread * 2;
+        const daysAgo = cluster.daysAgo + dayOffset;
         
-        // 深度が100未満にならないように調整
-        if (depth < 100) continue;
+        // 過去の日時を計算
+        const createdAt = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
         
         // 感情カテゴリを決定
         let category: typeof categories[number];
@@ -170,18 +175,18 @@ export async function POST(request: NextRequest) {
           message,
           category,
           strength: Math.round(strength * 100) / 100, // 小数点第2位まで
-          depth_y: depth,
           analysis: `${category}の感情表現`,
+          created_at: createdAt.toISOString(), // created_atを指定
         });
         
         messageIndex++;
       }
     });
 
-    // 疎らな深度にも少数のオブジェクトを配置（クラスター間の空白を埋める）
-    const sparseDepths = [150, 450, 650, 900, 1150, 1400, 1650, 1900];
-    sparseDepths.forEach((sparseDepth) => {
-      // 各疎らな深度に1-2個のオブジェクトを配置
+    // 疎らな日時にも少数のオブジェクトを配置（クラスター間の空白を埋める）
+    const sparseDaysAgo = [7, 20, 25, 35, 50, 70, 80, 100];
+    sparseDaysAgo.forEach((daysAgo) => {
+      // 各疎らな日時に1-2個のオブジェクトを配置
       const count = Math.random() > 0.5 ? 1 : 2;
       
       for (let i = 0; i < count; i++) {
@@ -189,23 +194,27 @@ export async function POST(request: NextRequest) {
         const categoryMessages = messages[category];
         const message = categoryMessages[messageIndex % categoryMessages.length];
         
-        // 疎らな深度は弱めの強度
+        // 疎らな日時は弱めの強度
         const strength = 0.3 + Math.random() * 0.4; // 0.3-0.7
+        
+        // 過去の日時を計算（±2日の範囲）
+        const dayOffset = (Math.random() - 0.5) * 4;
+        const createdAt = new Date(now.getTime() - (daysAgo + dayOffset) * 24 * 60 * 60 * 1000);
         
         testData.push({
           message,
           category,
           strength: Math.round(strength * 100) / 100,
-          depth_y: sparseDepth + Math.floor((Math.random() - 0.5) * 10), // ±5の範囲
           analysis: `${category}の感情表現`,
+          created_at: createdAt.toISOString(), // created_atを指定
         });
         
         messageIndex++;
       }
     });
 
-    // 深度順にソート（可視化しやすくするため）
-    testData.sort((a, b) => a.depth_y - b.depth_y);
+    // created_at順にソート（古いものから新しいものへ）
+    testData.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
     // 既存のテストデータを削除（オプション）
     const { error: deleteError } = await supabase

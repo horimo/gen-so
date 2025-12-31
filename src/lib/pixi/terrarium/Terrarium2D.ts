@@ -178,28 +178,8 @@ export function renderTerrariumPlants(
   const terrariumContainer = new Container();
   terrariumContainer.name = "terrarium-container";
 
-  console.log("renderTerrariumPlants呼び出し:", { 
-    plantCount: plantData.length, 
-    baseGroundY,
-    viewportWidth: typeof window !== "undefined" ? window.innerWidth : 0,
-    viewportHeight: typeof window !== "undefined" ? window.innerHeight : 0,
-  });
-
   // 各植物を描画
   plantData.forEach((plant, index) => {
-    // 成長度合いに応じてサイズを調整
-    const baseSize = 8 + plant.strength * 8;
-    const size = baseSize * (0.3 + plant.growthProgress * 0.7); // 0.3-1.0倍の範囲
-
-    console.log(`植物${index}を描画:`, { 
-      id: plant.id, 
-      category: plant.category, 
-      x: plant.x, 
-      y: plant.y, 
-      baseGroundY,
-      scale: 0.3 + plant.growthProgress * 0.7 
-    });
-
     const plantSprite = createPlantSprite({
       app,
       category: plant.category,
@@ -216,21 +196,10 @@ export function renderTerrariumPlants(
 
     plantSprite.name = `terrarium-plant-${plant.id}`;
     terrariumContainer.addChild(plantSprite);
-    
-    console.log(`植物${index}を追加完了:`, { 
-      name: plantSprite.name, 
-      x: plantSprite.x, 
-      y: plantSprite.y, 
-      scale: plantSprite.scale.x,
-      visible: plantSprite.visible,
-      alpha: plantSprite.alpha
-    });
   });
   
   // テラリウムコンテナをメインコンテナに追加
   container.addChild(terrariumContainer);
-  
-  console.log("テラリウム植物描画完了。コンテナの子要素数:", container.children.length);
   
   return terrariumContainer;
 }

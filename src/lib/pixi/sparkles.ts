@@ -119,8 +119,7 @@ export function createSparkleLayer(
     sparkleContainer.addChild(particleContainer);
   });
   
-  // デバッグ用：星屑レイヤーの情報をログ出力
-  console.log(`星屑レイヤー作成: ${config.depthOffset}, パーティクル数: ${particles.length}, コンテナ子要素数: ${sparkleContainer.children.length}`);
+  // 星屑レイヤー作成完了
   
   // アニメーション関数
   let lastTime = Date.now();
@@ -163,8 +162,6 @@ export function createSparkleLayer(
         
         // 再配置フラグを設定（次のフレームで位置を確実に更新するため）
         justRepositioned = true;
-        
-        console.log(`星屑再配置 [${config.depthOffset}]: 深度ジャンプ検知 (${depthDelta.toFixed(2)})`);
       } else {
         // 通常のスクロール：星屑レイヤーを移動
         const yDelta = -depthDelta * 10;
@@ -172,11 +169,7 @@ export function createSparkleLayer(
         lastDepth = nowDepth;
       }
       
-      // デバッグ用（深度の変化が大きい場合のみログ出力）
-      if (Math.abs(depthDelta) > 1 && !isJump) {
-        const yDelta = -depthDelta * 10;
-        console.log(`星屑位置更新 [${config.depthOffset}]: lastDepth=${(lastDepth - depthDelta).toFixed(2)}, nowDepth=${nowDepth.toFixed(2)}, depthDelta=${depthDelta.toFixed(2)}, yDelta=${yDelta.toFixed(2)}, newY=${sparkleContainer.y.toFixed(2)}`);
-      }
+      // 星屑位置更新完了
     }
     
     particles.forEach((particle, index) => {

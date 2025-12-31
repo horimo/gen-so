@@ -10,7 +10,7 @@ export interface StrataObject {
   message: string;
   category: "joy" | "peace" | "stress" | "sadness" | "inspiration" | "nostalgia" | "confusion";
   strength: number;
-  depth_y: number;
+  depth_y?: number; // オプショナル（created_atから計算される）
   analysis?: string;
   created_at?: string;
 }
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { message, category, strength, depth_y, analysis } = body;
+    const { message, category, strength, analysis } = body;
 
     // バリデーション
     if (!message || typeof message !== "string") {
@@ -114,14 +114,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (typeof depth_y !== "number") {
-      return NextResponse.json(
-        { error: "無効な深度値です" },
-        { status: 400 }
-      );
-    }
-
-    // データベースに保存
+    // データベースに保存（depth_yはcreated_atから自動計算されるため、保存しない）
     const { data, error } = await supabase
       .from("strata_objects")
       .insert({
@@ -129,7 +122,6 @@ export async function POST(request: NextRequest) {
         message,
         category,
         strength,
-        depth_y,
         analysis: analysis || null,
       })
       .select()

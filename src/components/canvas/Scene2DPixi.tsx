@@ -25,6 +25,7 @@ import {
   updateLightingLayer,
   type LightingSettings,
 } from "@/lib/pixi/lighting/LightingSystem2D";
+import { createEmotionParticleSystem } from "@/lib/pixi/effects/EmotionParticles";
 
 /**
  * 全感情オブジェクトの分布を分析（地上エリア用）
@@ -375,11 +376,8 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
             // 既存の星屑レイヤーが存在する場合はスキップ
             const existingSparkles = containerRef.current.children.filter((child) => child.name?.startsWith("sparkles-"));
             if (existingSparkles.length === 0) {
-              console.log("星屑エフェクト: PixiJS初期化後に星屑レイヤーを作成します");
-              
               // 各星屑レイヤーを作成
               SPARKLE_LAYERS.forEach((config) => {
-                console.log(`星屑エフェクト: レイヤー作成開始 - depthOffset: ${config.depthOffset}, count: ${config.count}`);
                 const sparkleLayer = createSparkleLayer(
                   containerRef.current!,
                   config,
@@ -391,22 +389,13 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
                   () => depthRef.current // 深度を取得する関数を渡す（リアルタイムで更新される）
                 );
                 
-                console.log(`星屑エフェクト: レイヤー作成完了 - depthOffset: ${config.depthOffset}, 子要素数: ${sparkleLayer.children.length}`);
-                
                 // 背景の上、地面の下に配置（z-indexの低い順）
                 const backgroundIndex = containerRef.current!.children.findIndex((child) => child.name === "background");
                 if (backgroundIndex >= 0) {
                   containerRef.current!.addChildAt(sparkleLayer, backgroundIndex + 1);
-                  console.log(`星屑エフェクト: レイヤー追加 - depthOffset: ${config.depthOffset}, インデックス: ${backgroundIndex + 1}`);
                 } else {
                   containerRef.current!.addChildAt(sparkleLayer, 0);
-                  console.log(`星屑エフェクト: レイヤー追加 - depthOffset: ${config.depthOffset}, インデックス: 0`);
                 }
-              });
-              
-              console.log("星屑エフェクト: すべてのレイヤー作成完了", {
-                totalChildren: containerRef.current!.children.length,
-                sparkleLayers: containerRef.current!.children.filter(c => c.name?.startsWith("sparkles-")).length,
               });
             }
           }
@@ -922,7 +911,159 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
         container.addChild(sprite);
       }
     });
-  }, [visibleEmotions, groundY, depth, setHoveredEmotion, setSelectedEmotion, hoveredEmotionId, selectedEmotionId]);
+  }, [visibleEmotions, groundY, depth, setHoveredEmotion, setSelectedEmotion]);
+
+  // 感情オブジェクト周辺のパーティクルエフェクト
+  const particleSystemsRef = useRef<Map<string, Container>>(new Map());
+  
+  // 表示されている感情オブジェクトのIDリストを取得（参照の変更を防ぐため）
+  const visibleEmotionIdsString = useMemo(() => {
+    const ids = visibleEmotions.map((emotion) => emotion.id).sort();
+    return ids.join(",");
+  }, [visibleEmotions]);
+  
+  useEffect(() => {
+    if (!appRef.current || !containerRef.current) return;
+
+    const container = containerRef.current;
+    const app = appRef.current;
+    const ticker = app.ticker;
+
+    // 現在のパーティクルシステムのIDセット
+    const currentParticleIds = new Set(particleSystemsRef.current.keys());
+    const targetEmotionIds = new Set(visibleEmotions.map((e) => e.id));
+    
+    // 削除すべきパーティクルシステム（表示されなくなった感情オブジェクト）
+    const removedCount = Array.from(currentParticleIds).filter(id => !targetEmotionIds.has(id)).length;
+    if (removedCount > 0) {
+      console.log(`[パーティクル] 削除: ${removedCount}個`);
+    }
+    
+    currentParticleIds.forEach((emotionId) => {
+      if (!targetEmotionIds.has(emotionId)) {
+        const particleSystem = particleSystemsRef.current.get(emotionId);
+        if (particleSystem) {
+          container.removeChild(particleSystem);
+          particleSystem.destroy();
+          particleSystemsRef.current.delete(emotionId);
+        }
+      }
+    });
+    
+    // 追加すべきパーティクルシステム（新しく表示された感情オブジェクト）
+    let createdCount = 0;
+    let skippedCount = 0;
+    
+    visibleEmotions.forEach((emotion) => {
+      // 既にパーティクルシステムが存在する場合はスキップ
+      const existingSystem = particleSystemsRef.current.get(emotion.id);
+      if (existingSystem && !existingSystem.destroyed) {
+        return;
+      }
+      
+      // 破棄されたパーティクルシステムを削除
+      if (existingSystem && existingSystem.destroyed) {
+        particleSystemsRef.current.delete(emotion.id);
+      }
+      
+      const viewportHeight = window.innerHeight;
+      const depthDiff = emotion.depth - depth;
+      
+      // 感情オブジェクトのY位置を計算（感情オブジェクトの描画と同じロジック）
+      const baseGroundY = viewportHeight * (2 / 3);
+      const emotionY = baseGroundY + (depthDiff * 10);
+      
+      // 画面外のオブジェクトはパーティクルを生成しない（マージンを広げる）
+      if (emotionY < -1000 || emotionY > viewportHeight + 1000) {
+        skippedCount++;
+        return;
+      }
+
+      // X位置を計算（画面幅の中央を基準に）
+      const emotionX = (window.innerWidth / 2) + (emotion.x * 10);
+
+      // パーティクルシステムを作成
+      const particleSystem = createEmotionParticleSystem(
+        container,
+        emotionX,
+        emotionY,
+        emotion.category,
+        emotion.strength,
+        ticker
+      );
+
+      // パーティクルシステムを感情オブジェクトの後ろに配置（zIndexで制御）
+      particleSystem.zIndex = 90; // 感情オブジェクト（100）より後ろ、フォグ（50）より前
+      particleSystem.visible = true; // 明示的に表示
+      particleSystem.alpha = 1.0; // 不透明度を設定
+      
+      // フォグレイヤーの後ろに配置
+      const fogLayer = container.getChildByName("fog-layer");
+      if (fogLayer) {
+        const fogIndex = container.getChildIndex(fogLayer);
+        container.addChildAt(particleSystem, fogIndex + 1);
+      } else {
+        container.addChild(particleSystem);
+      }
+
+      particleSystemsRef.current.set(emotion.id, particleSystem);
+      createdCount++;
+      
+      // デバッグログ（作成時のみ）
+      console.log(`[パーティクル] システム作成: emotionId=${emotion.id}, category=${emotion.category}, children=${particleSystem.children.length}, x=${emotionX.toFixed(1)}, y=${emotionY.toFixed(1)}, visible=${particleSystem.visible}, alpha=${particleSystem.alpha}, inContainer=${container.children.includes(particleSystem)}`);
+    });
+    
+    // ログ出力（作成・スキップがあった場合のみ）
+    if (createdCount > 0 || skippedCount > 0) {
+      console.log(`[パーティクル] 作成: ${createdCount}個, スキップ: ${skippedCount}個 (depth=${depth}, visible=${visibleEmotions.length}個)`);
+    }
+
+    // クリーンアップ関数（コンポーネントのアンマウント時のみ実行）
+    // 注意: このクリーンアップは、感情オブジェクトの追加/削除時には実行されない
+  }, [visibleEmotionIdsString, depth]);
+
+  // スクロール時にパーティクルコンテナの位置を更新
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const viewportHeight = window.innerHeight;
+    const baseGroundY = viewportHeight * (2 / 3);
+
+    // 各パーティクルシステムの位置を更新
+    particleSystemsRef.current.forEach((particleSystem, emotionId) => {
+      // パーティクルシステムが削除されている場合はスキップ
+      if (!particleSystem || particleSystem.destroyed) {
+        particleSystemsRef.current.delete(emotionId);
+        return;
+      }
+
+      // コンテナに含まれていない場合は削除
+      if (containerRef.current && !containerRef.current.children.includes(particleSystem)) {
+        particleSystemsRef.current.delete(emotionId);
+        return;
+      }
+
+      // emotionObjectsから直接取得（visibleEmotionsの参照変更を避ける）
+      const emotion = emotionObjects.find((e) => e.id === emotionId);
+      if (!emotion) {
+        // 感情オブジェクトが見つからない場合は削除
+        if (containerRef.current) {
+          containerRef.current.removeChild(particleSystem);
+        }
+        particleSystem.destroy();
+        particleSystemsRef.current.delete(emotionId);
+        return;
+      }
+
+      const depthDiff = emotion.depth - depth;
+      const emotionY = baseGroundY + (depthDiff * 10);
+      const emotionX = (window.innerWidth / 2) + (emotion.x * 10);
+
+      // パーティクルコンテナの位置を更新
+      particleSystem.x = emotionX;
+      particleSystem.y = emotionY;
+    });
+  }, [depth, emotionObjects]);
 
   // 植物システムの描画
   useEffect(() => {
@@ -1007,7 +1148,6 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
 
     const loadTerrariumData = async () => {
       try {
-        console.log("テラリウムデータを読み込み中...", { userId, isSurfaceArea, depth, groundY });
         const data = await generateTerrariumPlants(userId, groundY);
         
         if (isCancelled) return;
@@ -1015,10 +1155,6 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
         // テラリウムデータ生成時のgroundYを保存
         terrariumBaseGroundYRef.current = groundY;
         
-        console.log("テラリウムデータ読み込み完了:", { 
-          plantCount: data.plantData.length, 
-          totalGrowth: data.totalGrowth 
-        });
         setTerrariumPlantData(data);
       } catch (error) {
         if (isCancelled) return;
@@ -1044,7 +1180,6 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
       if (existingTerrariumContainer) {
         containerRef.current.removeChild(existingTerrariumContainer);
         terrariumContainerRef.current = null;
-        console.log("テラリウムコンテナを削除（データなし）");
       }
       return;
     }
@@ -1054,24 +1189,10 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
 
     // テラリウムデータ生成時のgroundYを使用
     const baseGroundY = terrariumBaseGroundYRef.current ?? groundY;
-
-    console.log("テラリウム植物を描画:", { 
-      plantCount: terrariumPlantData.plantData.length, 
-      baseGroundY,
-      currentGroundY: groundY,
-      isSurfaceArea,
-      depth
-    });
     
     // テラリウムの植物を描画（コンテナを返す）
     const terrariumContainer = renderTerrariumPlants(terrariumPlantData.plantData, app, container, baseGroundY);
     terrariumContainerRef.current = terrariumContainer;
-    
-    // 描画後の確認
-    const renderedPlants = terrariumContainer.children.filter((child) => 
-      child.name?.startsWith("terrarium-plant-")
-    );
-    console.log("描画されたテラリウム植物数:", renderedPlants.length);
   }, [terrariumPlantData]); // テラリウムデータが変更された時のみ再描画
 
   // テラリウムコンテナの位置をスクロールに合わせて更新
@@ -1085,13 +1206,6 @@ export function Scene2DPixi({ depth, othersLights = [], userId }: Scene2DPixiPro
     // スクロールでgroundYが上に移動する（値が小さくなる）と、テラリウムも上に移動
     const yOffset = groundY - baseGroundY;
     terrariumContainer.y = yOffset;
-    
-    console.log("テラリウムコンテナ位置更新:", { 
-      baseGroundY, 
-      currentGroundY: groundY, 
-      yOffset,
-      containerY: terrariumContainer.y 
-    });
   }, [groundY]); // groundYが変更されるたびに位置を更新
   
   // モーダルが表示されている間は、Canvasのクリックイベントを無視

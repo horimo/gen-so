@@ -23,6 +23,7 @@ import { useMessageStore } from "@/store/useMessageStore";
 import { useEmotionStore } from "@/store/useEmotionStore";
 import { analyzeEmotion } from "@/lib/api";
 import { saveStrataObject, getStrataObjects, getOthersStrataObjects } from "@/lib/api-strata";
+import { calculateDepthsFromCreatedAts } from "@/lib/utils/depthCalculator";
 import { createTestData } from "@/lib/api-test-data";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useState, useRef } from "react";
@@ -74,11 +75,17 @@ export function DepthCanvas() {
           
           // データベースから読み込んだデータを3D空間に復元
           if (strataData.length > 0) {
-            const emotions = strataData.map((strata) => ({
+            // created_atから深度を計算
+            const createdAts = strataData.map((strata) => strata.created_at || new Date().toISOString());
+            const depths = calculateDepthsFromCreatedAts(createdAts);
+            
+            const emotions = strataData.map((strata, index) => ({
               category: strata.category,
               strength: strata.strength,
               analysis: strata.analysis || "",
-              depth: strata.depth_y,
+              depth: depths[index], // created_atから計算した深度を使用
+              // DBから取得したcreated_atをtimestampとして使用
+              timestamp: strata.created_at ? new Date(strata.created_at).getTime() : undefined,
             }));
             
             addEmotions(emotions);
@@ -166,22 +173,14 @@ export function DepthCanvas() {
         analysis: analysis.analysis,
       });
       
-      // 感情オブジェクトを3D空間に追加（現在の深度に配置）
-      addEmotion({
-        category: analysis.category,
-        strength: analysis.strength,
-        analysis: analysis.analysis,
-        depth: depth, // 現在の深度を保存
-      });
-      
       // データベースに保存（ログインユーザーの場合）
+      let savedStrata: Awaited<ReturnType<typeof saveStrataObject>> | null = null;
       if (user) {
         try {
-          await saveStrataObject(
+          savedStrata = await saveStrataObject(
             message,
             analysis.category,
             analysis.strength,
-            depth,
             analysis.analysis
           );
           console.log("言層をデータベースに保存しました");
@@ -189,6 +188,48 @@ export function DepthCanvas() {
           console.error("データベース保存エラー:", dbError);
           // データベース保存エラーは3D表示には影響しないため、エラーをスローしない
         }
+      }
+      
+      // 感情オブジェクトを3D空間に追加
+      // 新規作成時は深度0（最も浅い）として扱う
+      // 既存データを読み込む際に全てのデータをまとめて深度を再計算する
+      const createdAt = savedStrata?.created_at ? new Date(savedStrata.created_at) : new Date();
+      
+      addEmotion({
+        category: analysis.category,
+        strength: analysis.strength,
+        analysis: analysis.analysis,
+        depth: 0, // 新規作成時は深度0（最も浅い）、既存データ読み込み時に再計算される
+        timestamp: createdAt.getTime(),
+      });
+      
+      // 既存データを再読み込みして深度を再計算（新規作成後）
+      if (savedStrata && user) {
+        setTimeout(async () => {
+          try {
+            const strataData = await getStrataObjects();
+            if (strataData.length > 0) {
+              // 既存の感情オブジェクトをクリア
+              clearEmotions();
+              
+              // created_atから深度を計算
+              const createdAts = strataData.map((strata) => strata.created_at || new Date().toISOString());
+              const depths = calculateDepthsFromCreatedAts(createdAts);
+              
+              const emotions = strataData.map((strata, index) => ({
+                category: strata.category,
+                strength: strata.strength,
+                analysis: strata.analysis || "",
+                depth: depths[index], // created_atから計算した深度を使用
+                timestamp: strata.created_at ? new Date(strata.created_at).getTime() : undefined,
+              }));
+              
+              addEmotions(emotions);
+            }
+          } catch (error) {
+            console.error("深度再計算エラー:", error);
+          }
+        }, 500); // 500ms後に再読み込み（DBの反映を待つ）
       }
     } catch (error) {
       console.error("感情解析エラー:", error);

@@ -16,8 +16,8 @@ export interface EmotionObject {
 
 interface EmotionStore {
   objects: EmotionObject[];
-  addEmotion: (emotion: Omit<EmotionObject, "id" | "x" | "z" | "timestamp">) => void;
-  addEmotions: (emotions: Omit<EmotionObject, "id" | "x" | "z" | "timestamp">[]) => void;
+  addEmotion: (emotion: Omit<EmotionObject, "id" | "x" | "z" | "timestamp"> & { timestamp?: number }) => void;
+  addEmotions: (emotions: Array<Omit<EmotionObject, "id" | "x" | "z" | "timestamp"> & { timestamp?: number }>) => void;
   removeEmotion: (id: string) => void;
   clearEmotions: () => void;
 }
@@ -30,7 +30,8 @@ export const useEmotionStore = create<EmotionStore>((set) => ({
   
   addEmotion: (emotion) => {
     // よりランダムなシード生成
-    const timestamp = Date.now();
+    // timestampを取得（渡された場合はそれを使用、なければ現在時刻を使用）
+    const timestamp = emotion.timestamp ?? Date.now();
     const randomId = Math.random().toString(36).substr(2, 9);
     
     // ID全体をハッシュ化（より複雑な計算）
@@ -85,6 +86,9 @@ export const useEmotionStore = create<EmotionStore>((set) => ({
       // 完全にランダムなIDを生成（各オブジェクトごとに異なる）
       const randomId = Math.random().toString(36).substr(2, 9);
       
+      // timestampを取得（渡された場合はそれを使用、なければ現在時刻を使用）
+      const timestamp = emotion.timestamp ?? (baseTime + index);
+      
       // ID全体をハッシュ化（より複雑な計算）
       const idHash = randomId.split('').reduce((acc, char, i) => {
         return acc + char.charCodeAt(0) * (i + 1) * 1000;
@@ -98,7 +102,7 @@ export const useEmotionStore = create<EmotionStore>((set) => ({
       // より複雑なシード生成（複数の要素を組み合わせ）
       const seed = Math.floor(emotion.depth * 1000) 
         + index * 10000 
-        + baseTime 
+        + timestamp 
         + idHash 
         + categoryHash
         + Math.floor(emotion.strength * 100000);
@@ -122,11 +126,10 @@ export const useEmotionStore = create<EmotionStore>((set) => ({
       return {
         ...emotion,
         // 各オブジェクトに一意のIDを生成（インデックスとランダム値を組み合わせ）
-        id: `emotion-${baseTime}-${index}-${randomId}`,
-        timestamp: baseTime + index, // インデックスを加算して一意性を保証
+        id: `emotion-${timestamp}-${index}-${randomId}`,
+        timestamp, // DBから取得したcreated_atを使用
         // 極座標系でのランダムな位置に配置（より自然な分布）
         x,
-        z,
       };
     });
     
