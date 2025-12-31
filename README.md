@@ -390,14 +390,32 @@ curl -X POST http://localhost:3000/api/test-data \
 
 ## 📚 ドキュメント
 
-詳細なドキュメントは`docs/`ディレクトリを参照してください：
+詳細なドキュメントは`docs/`ディレクトリに整理されています。各カテゴリごとに分類されています：
 
-- **PROJECT_STATUS.md**: プロジェクトの現在の状態まとめ（実装状況、技術スタック、アーキテクチャ）
+### 📋 計画・設計 (`docs/plans/`)
 - **FEATURE_DESIGN.md**: テラリウム機能の詳細設計
+- **2D_MIGRATION_PLAN.md**: 3Dから2Dへの移行計画
+- **2D_OBJECT_DESIGN.md**: 2Dオブジェクトのデザイン仕様
+- **PIXIJS_INTEGRATION_PLAN.md**: PixiJS統合計画
+- **PIXIJS_V8_UPGRADE.md**: PixiJS v8へのアップグレード計画
+
+### ✅ 実装状況 (`docs/status/`)
+- **PROJECT_STATUS.md**: プロジェクトの現在の状態まとめ（実装状況、技術スタック、アーキテクチャ）
 - **IMPLEMENTATION_STATUS.md**: 実装状況と技術詳細
+- **PIXIJS_PHASE2_COMPLETE.md**: PixiJS Phase 2の完了報告
+
+### 💡 機能提案 (`docs/proposals/`)
+- **NEXT_IMPLEMENTATION_PLAN.md**: 次の実装計画
+- **NEXT_FEATURES_PROPOSAL.md**: 次の機能提案
+- **3D_TO_2D_MISSING_FEATURES.md**: 3Dから2Dへの移行時に未実装の機能一覧
+
+### 🔧 技術・運用 (`docs/technical/`)
 - **README_DATABASE.md**: データベース構造とセットアップ
 - **DEPLOY.md**: デプロイ手順
 - **DEPLOY_CHECKLIST.md**: デプロイ前チェックリスト
+- **COMPILE_OPTIMIZATION.md**: コンパイル最適化の記録
+
+詳細は [`docs/README.md`](docs/README.md) を参照してください。
 
 ## 📝 ライセンス
 
